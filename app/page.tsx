@@ -75,6 +75,11 @@ const ICE_CONFIG: RTCConfiguration = {
       username: "8b3d6a843587e3675883640d",
       credential: "6BdZIExJu1RAizoq",
     },
+    {
+      urls: "turns:same-sky.metered.live:443?transport=tcp",
+      username: "8b3d6a843587e3675883640d",
+      credential: "6BdZIExJu1RAizoq",
+    },
   ],
 };
 
@@ -301,22 +306,40 @@ export default function Page() {
 
       pc.onicecandidate = (e) => {
         if (e.candidate) {
+          const type = e.candidate.type || (e.candidate.candidate.includes("typ relay") ? "relay" : e.candidate.candidate.includes("typ srflx") ? "srflx" : "host");
+          log(`Gathered ICE candidate (${type}): ${e.candidate.protocol} ${e.candidate.address}:${e.candidate.port}`);
           socketRef.current?.emit("signal", {
             type: "candidate",
             candidate: e.candidate.toJSON(),
           });
+        } else {
+          log("Finished gathering ICE candidates.", "success");
         }
       };
 
       pc.oniceconnectionstatechange = () => {
-        log(`ICE connection state: ${pc.iceConnectionState}`,
-          pc.iceConnectionState === "failed" ? "error" :
-          pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed" ? "success" : "info"
+        const state = pc.iceConnectionState;
+        log(`ICE connection state: ${state}`,
+          state === "failed" ? "error" :
+          state === "connected" || state === "completed" ? "success" : "info"
         );
-        if (pc.iceConnectionState === "failed") {
+        if (state === "failed") {
           setError(
             "Couldn't establish a direct connection — this can happen on some networks. Try again or switch networks."
           );
+          
+          // Print connection debugging info
+          pc.getStats().then(stats => {
+            let activeCandidatePair = false;
+            stats.forEach(report => {
+              if (report.type === "candidate-pair" && report.state === "succeeded") {
+                activeCandidatePair = true;
+              }
+            });
+            if (!activeCandidatePair) {
+              log("No valid ICE candidate pair was found. TURN server likely blocked or unreachable.", "error");
+            }
+          });
         }
       };
 
