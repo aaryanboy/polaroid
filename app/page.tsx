@@ -54,6 +54,28 @@ const FRAMES: FrameStyle[] = [
   },
 ];
 
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
+};
+
 function randomCode() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let out = "";
@@ -258,7 +280,7 @@ export default function Page() {
     setRole("host");
     setStage("waiting");
 
-    const peer = new Peer(code);
+    const peer = new Peer(code, { config: ICE_CONFIG });
     peerRef.current = peer;
 
     peer.on("error", (err) => {
@@ -300,7 +322,7 @@ export default function Page() {
     setRole("guest");
     setStage("joining");
 
-    const peer = new Peer();
+    const peer = new Peer({ config: ICE_CONFIG });
     peerRef.current = peer;
 
     peer.on("error", (err: any) => {
@@ -428,7 +450,7 @@ export default function Page() {
       )}
 
       <video ref={localVideoRef} muted playsInline style={{ display: "none" }} />
-      <video ref={remoteVideoRef} playsInline style={{ display: "none" }} />
+      <video ref={remoteVideoRef} muted playsInline style={{ display: "none" }} />
       <canvas ref={canvasRef} style={{ display: "none" }} />
     </main>
   );
