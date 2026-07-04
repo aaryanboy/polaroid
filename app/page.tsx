@@ -398,10 +398,27 @@ export default function Page() {
     async (room: string, role: "host" | "guest") => {
       roomRef.current = room;
       roleRef.current = role;
+
+      log(`Pinging ${SIGNALING_URL} to wake it up (free-tier servers can sleep)…`);
+      const wakeStart = performance.now();
+      try {
+        await fetch(`${SIGNALING_URL}/health`, { mode: "cors" });
+        log(`Server responded in ${(performance.now() - wakeStart).toFixed(0)}ms.`, "success");
+      } catch (err: any) {
+        log(
+          `Wake-up ping failed (${err.message}). It may still be starting up — continuing anyway.`,
+          "error"
+        );
+      }
+
       log(`Connecting to signaling server at ${SIGNALING_URL}…`);
       const t0 = performance.now();
       const { io } = await import("socket.io-client");
-      const socket = io(SIGNALING_URL, { transports: ["websocket", "polling"] });
+      const socket = io(SIGNALING_URL, {
+        transports: ["websocket", "polling"],
+        timeout: 45000,
+        reconnectionAttempts: 5,
+      });
       socketRef.current = socket;
 
       socket.on("connect", () => {
