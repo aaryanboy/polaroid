@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { default as PeerType, DataConnection, MediaConnection } from "peerjs";
+import type { Socket } from "socket.io-client";
 
 type Stage = "setup" | "waiting" | "joining" | "live" | "result";
+type LogLevel = "info" | "success" | "error";
+type LogEntry = { time: string; msg: string; level: LogLevel };
 
 type FrameStyle = {
   id: string;
@@ -54,7 +56,7 @@ const FRAMES: FrameStyle[] = [
   },
 ];
 
-const ICE_CONFIG = {
+const ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -76,8 +78,11 @@ const ICE_CONFIG = {
   ],
 };
 
+const SIGNALING_URL =
+  process.env.NEXT_PUBLIC_SIGNALING_URL || "http://localhost:4000";
+
 function randomCode() {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
   let out = "";
   for (let i = 0; i < 5; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
@@ -92,12 +97,17 @@ export default function Page() {
   const [frame, setFrame] = useState<FrameStyle>(FRAMES[0]);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
-  const [role, setRole] = useState<"host" | "guest" | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [debugOpen, setDebugOpen] = useState(true);
 
-  const peerRef = useRef<PeerType | null>(null);
-  const dataConnRef = useRef<DataConnection | null>(null);
-  const callRef = useRef<MediaConnection | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const roleRef = useRef<"host" | "guest" | null>(null);
+  const roomRef = useRef<string>("");
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,6 +116,14 @@ export default function Page() {
 
   const captureTargetRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const log = useCallback((msg: string, level: LogLevel = "info") => {
+    const time = new Date().toLocaleTimeString(undefined, { hour12: false }) +
+      "." + String(new Date().getMilliseconds()).padStart(3, "0");
+    if (level === "error") console.error("[SameSky]", msg);
+    else console.log("[SameSky]", msg);
+    setLogs((prev) => [...prev.slice(-59), { time, msg, level }]);
+  }, []);
 
   const cleanupCountdown = () => {
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
@@ -127,10 +145,8 @@ export default function Page() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // background
     ctx.fillStyle = f.id === "coral" ? "#2a1a12" : "#0d0e18";
     ctx.fillRect(0, 0, W, H);
-    // subtle stars
     ctx.fillStyle = "rgba(245,239,230,0.5)";
     for (let i = 0; i < 60; i++) {
       const x = Math.random() * W;
@@ -157,7 +173,7 @@ export default function Page() {
       const dw = vw * scale;
       const dh = vh * scale;
       ctx.translate(cx, cy);
-      ctx.scale(-1, 1); // mirror like a mirror/selfie
+      ctx.scale(-1, 1);
       ctx.drawImage(video, -dw / 2, -dh / 2, dw, dh);
       ctx.restore();
     };
@@ -165,7 +181,6 @@ export default function Page() {
     drawCircleVideo(remoteVideo, rightCx);
     drawCircleVideo(localVideo, leftCx);
 
-    // rims
     const drawRim = (cx: number) => {
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -176,7 +191,6 @@ export default function Page() {
     drawRim(leftCx);
     drawRim(rightCx);
 
-    // center highlight where circles overlap
     ctx.save();
     ctx.beginPath();
     ctx.arc(leftCx, cy, radius, 0, Math.PI * 2);
@@ -188,7 +202,6 @@ export default function Page() {
     ctx.stroke();
     ctx.restore();
 
-    // bottom paper strip
     const stripH = 150;
     ctx.fillStyle = f.paper;
     ctx.fillRect(0, H - stripH, W, stripH);
@@ -212,7 +225,8 @@ export default function Page() {
     setPhoto(canvas.toDataURL("image/png"));
     setStage("result");
     setCountdown(null);
-  }, []);
+    log("Photo captured and composed.", "success");
+  }, [log]);
 
   const beginSyncedCountdown = useCallback(
     (targetTime: number) => {
@@ -233,31 +247,217 @@ export default function Page() {
     [drawPhoto]
   );
 
-  const wireDataConnection = useCallback(
-    (conn: DataConnection) => {
-      dataConnRef.current = conn;
-      conn.on("open", () => setConnected(true));
-      conn.on("data", (data: any) => {
-        if (data?.type === "frame") {
-          const f = FRAMES.find((fr) => fr.id === data.id);
-          if (f) setFrame(f);
-        } else if (data?.type === "countdown") {
-          beginSyncedCountdown(data.targetTime);
-        } else if (data?.type === "restart") {
-          setPhoto(null);
-          setStage("live");
+  const sendAppMessage = (msg: any) => {
+    const ch = dataChannelRef.current;
+    if (ch && ch.readyState === "open") {
+      ch.send(JSON.stringify(msg));
+    } else {
+      log(`Tried to send "${msg.type}" but data channel isn't open yet.`, "error");
+    }
+  };
+
+  const wireDataChannel = useCallback(
+    (channel: RTCDataChannel) => {
+      dataChannelRef.current = channel;
+      channel.onopen = () => {
+        setConnected(true);
+        log("Data channel open — frame picks and countdown will sync now.", "success");
+      };
+      channel.onclose = () => {
+        setConnected(false);
+        log("Data channel closed.", "error");
+      };
+      channel.onerror = (e) => log(`Data channel error: ${JSON.stringify(e)}`, "error");
+      channel.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data?.type === "frame") {
+            const f = FRAMES.find((fr) => fr.id === data.id);
+            if (f) setFrame(f);
+          } else if (data?.type === "countdown") {
+            log("Partner started the countdown.", "info");
+            beginSyncedCountdown(data.targetTime);
+          } else if (data?.type === "restart") {
+            setPhoto(null);
+            setStage("live");
+          }
+        } catch {
+          log("Received a message that wasn't valid JSON.", "error");
+        }
+      };
+    },
+    [beginSyncedCountdown, log]
+  );
+
+  const createPeerConnection = useCallback(
+    (isInitiator: boolean) => {
+      log(`Creating WebRTC connection (initiator=${isInitiator})…`);
+      const pc = new RTCPeerConnection(ICE_CONFIG);
+      pcRef.current = pc;
+
+      localStreamRef.current?.getTracks().forEach((track) => {
+        pc.addTrack(track, localStreamRef.current!);
+      });
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socketRef.current?.emit("signal", {
+            type: "candidate",
+            candidate: e.candidate.toJSON(),
+          });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        log(`ICE connection state: ${pc.iceConnectionState}`,
+          pc.iceConnectionState === "failed" ? "error" :
+          pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed" ? "success" : "info"
+        );
+        if (pc.iceConnectionState === "failed") {
+          setError(
+            "Couldn't establish a direct connection — this can happen on some networks. Try again or switch networks."
+          );
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        log(`Peer connection state: ${pc.connectionState}`);
+      };
+
+      pc.ontrack = (e) => {
+        log("Remote video track received.", "success");
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = e.streams[0];
+          remoteVideoRef.current.play().catch((err) =>
+            log(`Remote video play() failed: ${err.message}`, "error")
+          );
+        }
+        setStage((s) => (s === "result" ? s : "live"));
+      };
+
+      if (isInitiator) {
+        const channel = pc.createDataChannel("data");
+        wireDataChannel(channel);
+      } else {
+        pc.ondatachannel = (e) => wireDataChannel(e.channel);
+      }
+
+      return pc;
+    },
+    [log, wireDataChannel]
+  );
+
+  const flushPendingCandidates = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    while (pendingCandidatesRef.current.length) {
+      const c = pendingCandidatesRef.current.shift()!;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+      } catch (err: any) {
+        log(`Failed to add queued ICE candidate: ${err.message}`, "error");
+      }
+    }
+  }, [log]);
+
+  const handleSignal = useCallback(
+    async (data: any) => {
+      if (data.type === "offer") {
+        log("Received offer from partner.");
+        if (!pcRef.current) createPeerConnection(false);
+        const pc = pcRef.current!;
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await flushPendingCandidates();
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socketRef.current?.emit("signal", { type: "answer", sdp: answer });
+        log("Sent answer back to partner.");
+      } else if (data.type === "answer") {
+        log("Received answer from partner.");
+        const pc = pcRef.current;
+        if (!pc) return;
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await flushPendingCandidates();
+      } else if (data.type === "candidate") {
+        const pc = pcRef.current;
+        if (pc && pc.remoteDescription) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } catch (err: any) {
+            log(`Failed to add ICE candidate: ${err.message}`, "error");
+          }
+        } else {
+          pendingCandidatesRef.current.push(data.candidate);
+        }
+      }
+    },
+    [createPeerConnection, flushPendingCandidates, log]
+  );
+
+  const connectSocket = useCallback(
+    async (room: string, role: "host" | "guest") => {
+      roomRef.current = room;
+      roleRef.current = role;
+      log(`Connecting to signaling server at ${SIGNALING_URL}…`);
+      const t0 = performance.now();
+      const { io } = await import("socket.io-client");
+      const socket = io(SIGNALING_URL, { transports: ["websocket", "polling"] });
+      socketRef.current = socket;
+
+      socket.on("connect", () => {
+        log(`Socket connected in ${(performance.now() - t0).toFixed(0)}ms.`, "success");
+        socket.emit("join", room);
+      });
+
+      socket.on("connect_error", (err) => {
+        log(`Socket connection error: ${err.message}`, "error");
+        setError(
+          "Couldn't reach the signaling server. Check the server URL and that it's running."
+        );
+      });
+
+      socket.on("role", async (assignedRole: "host" | "guest") => {
+        log(`Server confirmed role: ${assignedRole}.`, "success");
+        if (assignedRole === "guest") {
+          const pc = createPeerConnection(true);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit("signal", { type: "offer", sdp: offer });
+          log("Sent offer to partner.");
         }
       });
-      conn.on("close", () => setConnected(false));
+
+      socket.on("peer-joined", () => {
+        log("Partner joined the room.", "success");
+      });
+
+      socket.on("peer-left", () => {
+        log("Partner disconnected.", "error");
+        setError("Your partner disconnected.");
+        setConnected(false);
+      });
+
+      socket.on("room-full", () => {
+        log("Room is already full.", "error");
+        setError("That session already has two people in it.");
+        setStage("setup");
+      });
+
+      socket.on("signal", (data: any) => {
+        handleSignal(data).catch((err) => log(`Signal handling error: ${err.message}`, "error"));
+      });
     },
-    [beginSyncedCountdown]
+    [createPeerConnection, handleSignal, log]
   );
 
   const getCamera = async () => {
+    log("Requesting camera access…");
+    const t0 = performance.now();
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: 640, height: 480 },
       audio: false,
     });
+    log(`Camera ready in ${(performance.now() - t0).toFixed(0)}ms.`, "success");
     localStreamRef.current = stream;
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
@@ -270,101 +470,50 @@ export default function Page() {
     setError(null);
     try {
       await getCamera();
-    } catch {
+    } catch (err: any) {
+      log(`Camera access failed: ${err.message}`, "error");
       setError("Camera access is needed to start a session.");
       return;
     }
-    const { default: Peer } = await import("peerjs");
-    const code = `sky-${randomCode().toLowerCase()}`;
+    const code = randomCode();
     setMyCode(code);
-    setRole("host");
     setStage("waiting");
-
-    const peer = new Peer(code, { config: ICE_CONFIG });
-    peerRef.current = peer;
-
-    peer.on("error", (err) => {
-      setError("Connection error: " + err.type);
-    });
-
-    peer.on("connection", (conn) => {
-      wireDataConnection(conn);
-    });
-
-    peer.on("call", (call) => {
-      callRef.current = call;
-      call.answer(localStreamRef.current ?? undefined);
-      call.on("stream", (remoteStream) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play().catch(() => {});
-        }
-        setStage("live");
-      });
-    });
+    connectSocket(code, "host");
   };
 
   const joinSession = async () => {
     setError(null);
-    const raw = joinInput.trim().toLowerCase().replace(/^sky-/, "");
-    if (!raw) {
+    const target = joinInput.trim().toLowerCase();
+    if (!target) {
       setError("Enter your partner's code first.");
       return;
     }
-    const target = `sky-${raw}`;
     try {
       await getCamera();
-    } catch {
+    } catch (err: any) {
+      log(`Camera access failed: ${err.message}`, "error");
       setError("Camera access is needed to join.");
       return;
     }
-    const { default: Peer } = await import("peerjs");
-    setRole("guest");
     setStage("joining");
-
-    const peer = new Peer({ config: ICE_CONFIG });
-    peerRef.current = peer;
-
-    peer.on("error", (err: any) => {
-      if (err?.type === "peer-unavailable") {
-        setError("No session found with that code — double check it and try again.");
-      } else {
-        setError(`Couldn't connect (${err?.type ?? "unknown error"}). Try again.`);
-      }
-      setStage("setup");
-    });
-
-    peer.on("open", () => {
-      const conn = peer.connect(target);
-      wireDataConnection(conn);
-
-      const call = peer.call(target, localStreamRef.current!);
-      callRef.current = call;
-      call.on("stream", (remoteStream) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play().catch(() => {});
-        }
-        setStage("live");
-      });
-    });
+    connectSocket(target, "guest");
   };
 
   const pickFrame = (f: FrameStyle) => {
     setFrame(f);
-    dataConnRef.current?.send({ type: "frame", id: f.id });
+    sendAppMessage({ type: "frame", id: f.id });
   };
 
   const triggerCapture = () => {
     const targetTime = Date.now() + 3200;
-    dataConnRef.current?.send({ type: "countdown", targetTime });
+    sendAppMessage({ type: "countdown", targetTime });
     beginSyncedCountdown(targetTime);
   };
 
   const retake = () => {
     setPhoto(null);
     setStage("live");
-    dataConnRef.current?.send({ type: "restart" });
+    sendAppMessage({ type: "restart" });
   };
 
   const downloadPhoto = () => {
@@ -379,7 +528,8 @@ export default function Page() {
     return () => {
       cleanupCountdown();
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      peerRef.current?.destroy();
+      pcRef.current?.close();
+      socketRef.current?.disconnect();
     };
   }, []);
 
@@ -391,7 +541,7 @@ export default function Page() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: "32px 20px",
+        padding: "32px 20px 200px",
       }}
     >
       {stage === "setup" && (
@@ -424,11 +574,12 @@ export default function Page() {
                   textTransform: "uppercase",
                 }}
               >
-                {myCode.replace("sky-", "")}
+                {myCode}
               </div>
             </>
           )}
           <PulseDots />
+          {error && <p style={{ color: "var(--coral)", marginTop: 18, fontSize: 14 }}>{error}</p>}
         </div>
       )}
 
@@ -452,6 +603,8 @@ export default function Page() {
       <video ref={localVideoRef} muted playsInline style={{ display: "none" }} />
       <video ref={remoteVideoRef} muted playsInline style={{ display: "none" }} />
       <canvas ref={canvasRef} style={{ display: "none" }} />
+
+      <DebugPanel logs={logs} open={debugOpen} setOpen={setDebugOpen} />
     </main>
   );
 }
@@ -474,10 +627,7 @@ function SetupScreen({
       <p className="eyebrow" style={{ marginBottom: 10 }}>
         A photo booth for two, anywhere
       </p>
-      <h1
-        className="wordmark"
-        style={{ fontSize: 52, margin: "0 0 14px", lineHeight: 1.05 }}
-      >
+      <h1 className="wordmark" style={{ fontSize: 52, margin: "0 0 14px", lineHeight: 1.05 }}>
         Same Sky
       </h1>
       <p style={{ opacity: 0.75, fontSize: 16, lineHeight: 1.6, marginBottom: 40 }}>
@@ -493,9 +643,7 @@ function SetupScreen({
       </div>
 
       <div className="card" style={{ padding: 32 }}>
-        <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 15 }}>
-          Have a code already?
-        </p>
+        <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 15 }}>Have a code already?</p>
         <input
           className="code-input"
           placeholder="ENTER CODE"
@@ -508,9 +656,7 @@ function SetupScreen({
         </button>
       </div>
 
-      {error && (
-        <p style={{ color: "var(--coral)", marginTop: 18, fontSize: 14 }}>{error}</p>
-      )}
+      {error && <p style={{ color: "var(--coral)", marginTop: 18, fontSize: 14 }}>{error}</p>}
     </div>
   );
 }
@@ -596,10 +742,7 @@ function BoothScreen({
                   width: 34,
                   height: 34,
                   borderRadius: "50%",
-                  border:
-                    f.id === frame.id
-                      ? "2px solid var(--cream)"
-                      : "2px solid transparent",
+                  border: f.id === frame.id ? "2px solid var(--cream)" : "2px solid transparent",
                   background: f.swatch,
                   padding: 0,
                 }}
@@ -685,7 +828,6 @@ function VisibleVideo({
   videoRef: React.RefObject<HTMLVideoElement>;
   mirrored?: boolean;
 }) {
-  // Renders a second, visible video element mirroring the hidden source video's stream.
   const visibleRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const src = videoRef.current;
@@ -714,6 +856,78 @@ function VisibleVideo({
         transform: mirrored ? "scaleX(-1)" : "none",
       }}
     />
+  );
+}
+
+function DebugPanel({
+  logs,
+  open,
+  setOpen,
+}: {
+  logs: LogEntry[];
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  const levelColor: Record<LogLevel, string> = {
+    info: "rgba(245,239,230,0.75)",
+    success: "#7ed9a3",
+    error: "#ff7a59",
+  };
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        maxHeight: open ? "40vh" : 40,
+        background: "rgba(10,10,16,0.92)",
+        borderTop: "1px solid var(--line)",
+        transition: "max-height 0.2s ease",
+        overflow: "hidden",
+        zIndex: 50,
+      }}
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          width: "100%",
+          height: 40,
+          background: "transparent",
+          border: "none",
+          color: "var(--cream)",
+          fontFamily: "monospace",
+          fontSize: 12,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+        }}
+      >
+        {open ? "▾" : "▸"} debug log ({logs.length})
+      </button>
+      {open && (
+        <div
+          style={{
+            padding: "0 16px 16px",
+            overflowY: "auto",
+            maxHeight: "calc(40vh - 40px)",
+            fontFamily: "monospace",
+            fontSize: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          {logs.length === 0 && (
+            <p style={{ opacity: 0.5 }}>Nothing logged yet — start a session or join one.</p>
+          )}
+          {logs.map((l, i) => (
+            <div key={i} style={{ color: levelColor[l.level] }}>
+              <span style={{ opacity: 0.5 }}>{l.time}</span> {l.msg}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
