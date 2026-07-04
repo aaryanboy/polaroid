@@ -60,23 +60,24 @@ const ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.relay.metered.ca:80" },
     {
-      urls: "turn:same-sky.metered.live:80",
+      urls: "turn:global.relay.metered.ca:80",
       username: "8b3d6a843587e3675883640d",
       credential: "6BdZIExJu1RAizoq",
     },
     {
-      urls: "turn:same-sky.metered.live:443",
+      urls: "turn:global.relay.metered.ca:80?transport=tcp",
       username: "8b3d6a843587e3675883640d",
       credential: "6BdZIExJu1RAizoq",
     },
     {
-      urls: "turn:same-sky.metered.live:443?transport=tcp",
+      urls: "turn:global.relay.metered.ca:443",
       username: "8b3d6a843587e3675883640d",
       credential: "6BdZIExJu1RAizoq",
     },
     {
-      urls: "turns:same-sky.metered.live:443?transport=tcp",
+      urls: "turns:global.relay.metered.ca:443?transport=tcp",
       username: "8b3d6a843587e3675883640d",
       credential: "6BdZIExJu1RAizoq",
     },
