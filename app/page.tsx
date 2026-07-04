@@ -56,25 +56,10 @@ const FRAMES: FrameStyle[] = [
   },
 ];
 
-const ICE_CONFIG: RTCConfiguration = {
+const DEFAULT_ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
   ],
 };
 
@@ -116,6 +101,21 @@ export default function Page() {
 
   const captureTargetRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const iceConfigRef = useRef<RTCConfiguration>(DEFAULT_ICE_CONFIG);
+
+  useEffect(() => {
+    fetch("/api/turn")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          iceConfigRef.current = {
+            iceServers: [...DEFAULT_ICE_CONFIG.iceServers!, ...data],
+          };
+          console.log("Dynamic TURN servers loaded");
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   const log = useCallback((msg: string, level: LogLevel = "info") => {
     const time = new Date().toLocaleTimeString(undefined, { hour12: false }) +
@@ -292,7 +292,7 @@ export default function Page() {
   const createPeerConnection = useCallback(
     (isInitiator: boolean) => {
       log(`Creating WebRTC connection (initiator=${isInitiator})…`);
-      const pc = new RTCPeerConnection(ICE_CONFIG);
+      const pc = new RTCPeerConnection(iceConfigRef.current);
       pcRef.current = pc;
 
       localStreamRef.current?.getTracks().forEach((track) => {
