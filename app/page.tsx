@@ -8,12 +8,7 @@ type LogLevel = "info" | "success" | "error";
 type LogEntry = { time: string; msg: string; level: LogLevel };
 
 /* ----------------------------------------------------------------------- *
- * Style system: three independent, syncable choices.
- *  - Palette  → color mood (ring / paper / ink / page glow)
- *  - Shape    → the "window" each partner appears in
- *  - Backdrop → the sprinkle drawn behind you both, live and in the photo
- * All three are shared instantly over the WebRTC data channel so both
- * partners always see the same booth.
+ * Style system: Syncable presets for filters, borders, and decorations.
  * ----------------------------------------------------------------------- */
 
 type PaletteStyle = {
@@ -80,11 +75,6 @@ const PALETTES: PaletteStyle[] = [
   },
 ];
 
-// Normalized (0–1) SVG path data. Every command is coordinate-only
-// (M/L/C/Q — no arcs), so a single string can be uniformly rescaled
-// to any pixel size just by multiplying every number in it, and reused
-// as-is inside a canvas Path2D. One shape definition, three render targets
-// (swatch icon, live CSS clip-path, and the captured PNG) always match.
 const SHAPE_PATHS: Record<string, string> = {
   circle:
     "M1,0.5 C1,0.77615 0.77615,1 0.5,1 C0.22385,1 0,0.77615 0,0.5 C0,0.22385 0.22385,0 0.5,0 C0.77615,0 1,0.22385 1,0.5 Z",
@@ -99,19 +89,103 @@ const SHAPE_PATHS: Record<string, string> = {
 type ShapeStyle = { id: string; label: string; hint: string; d: string };
 
 const SHAPES: ShapeStyle[] = [
-  { id: "circle", label: "Porthole", hint: "the classic", d: SHAPE_PATHS.circle },
-  { id: "heart", label: "Locket", hint: "extra soft", d: SHAPE_PATHS.heart },
-  { id: "arch", label: "Archway", hint: "a little grand", d: SHAPE_PATHS.arch },
-  { id: "polaroid", label: "Instant", hint: "snapshot feel", d: SHAPE_PATHS.polaroid },
+  { id: "circle", label: "Porthole", hint: "classic circle", d: SHAPE_PATHS.circle },
+  { id: "heart", label: "Locket", hint: "romantic heart", d: SHAPE_PATHS.heart },
+  { id: "arch", label: "Archway", hint: "classic arch", d: SHAPE_PATHS.arch },
+  { id: "polaroid", label: "Instant", hint: "square look", d: SHAPE_PATHS.polaroid },
+];
+
+type FilterStyle = {
+  id: string;
+  label: string;
+  cssVal: string;
+  swatch: string;
+};
+
+const FILTERS: FilterStyle[] = [
+  { id: "normal", label: "Normal", cssVal: "none", swatch: "linear-gradient(135deg, #8e9eab, #eef2f3)" },
+  { id: "golden_hour", label: "Golden Hour", cssVal: "brightness(1.1) saturate(1.25) sepia(0.15) contrast(0.95)", swatch: "linear-gradient(135deg, #fce0ad, #df9f28)" },
+  { id: "sunset", label: "Warm Sunset", cssVal: "brightness(1.05) saturate(1.4) hue-rotate(-12deg) sepia(0.1)", swatch: "linear-gradient(135deg, #f87171, #fb923c)" },
+  { id: "noir", label: "Noir (B&W)", cssVal: "grayscale(1) contrast(1.25) brightness(0.95)", swatch: "linear-gradient(135deg, #444, #111)" },
+  { id: "retro", label: "Retro Film", cssVal: "sepia(0.35) contrast(0.9) brightness(1.05) saturate(0.9)", swatch: "linear-gradient(135deg, #c4b5fd, #818cf8)" },
+  { id: "disposable", label: "Disposable", cssVal: "contrast(1.1) brightness(1.02) saturate(1.1) hue-rotate(5deg)", swatch: "linear-gradient(135deg, #34d399, #059669)" },
+  { id: "matte", label: "Matte Fade", cssVal: "contrast(0.85) brightness(1.05) saturate(0.8)", swatch: "linear-gradient(135deg, #a1a1aa, #52525b)" },
+  { id: "dream", label: "Dream", cssVal: "brightness(1.1) saturate(1.1) blur(0.3px) contrast(0.95)", swatch: "linear-gradient(135deg, #f472b6, #db2777)" },
+  { id: "tokyo", label: "Tokyo Night", cssVal: "hue-rotate(220deg) saturate(1.3) contrast(1.1)", swatch: "linear-gradient(135deg, #3b82f6, #1e3a8a)" },
+  { id: "cyberpunk", label: "Cyberpunk", cssVal: "hue-rotate(130deg) saturate(1.7) contrast(1.2)", swatch: "linear-gradient(135deg, #ec4899, #06b6d4)" },
+  { id: "vhs", label: "VHS", cssVal: "contrast(1.1) brightness(1.04) saturate(1.2) sepia(0.05)", swatch: "linear-gradient(135deg, #f59e0b, #6b21a8)" },
+  { id: "cinema", label: "Cinema", cssVal: "contrast(1.15) saturate(0.85) brightness(0.95)", swatch: "linear-gradient(135deg, #0f172a, #334155)" },
+  { id: "soft_portrait", label: "Soft Glow", cssVal: "brightness(1.08) saturate(1.04) contrast(0.92)", swatch: "linear-gradient(135deg, #fed7aa, #f472b6)" },
+  { id: "vintage", label: "Vintage", cssVal: "sepia(0.55) contrast(0.95) saturate(0.8) brightness(0.96)", swatch: "linear-gradient(135deg, #b45309, #78350f)" },
+  { id: "cool_blue", label: "Cool Blue", cssVal: "hue-rotate(180deg) saturate(0.9) brightness(1.05)", swatch: "linear-gradient(135deg, #93c5fd, #2563eb)" },
+  { id: "high_contrast", label: "High Pop", cssVal: "contrast(1.3) saturate(1.2)", swatch: "linear-gradient(135deg, #ef4444, #b91c1c)" },
+  { id: "low_sat", label: "Low Sat", cssVal: "saturate(0.35) contrast(1.05)", swatch: "linear-gradient(135deg, #d1d5db, #6b7280)" },
+  { id: "moody", label: "Moody", cssVal: "brightness(0.85) contrast(1.12) saturate(0.72)", swatch: "linear-gradient(135deg, #18181b, #27272a)" },
+  { id: "bright_pop", label: "Bright Pop", cssVal: "brightness(1.1) saturate(1.3) contrast(1.02)", swatch: "linear-gradient(135deg, #a855f7, #fb7185)" },
+  { id: "bw_classic", label: "Classic B&W", cssVal: "grayscale(1) contrast(1.05) brightness(1.0)", swatch: "linear-gradient(135deg, #888, #333)" }
+];
+
+type BorderStyle = {
+  id: string;
+  label: string;
+  renderType: "classic-white" | "double" | "gold" | "rosegold" | "black" | "matte" | "filmstrip" | "kodak" | "instax" | "ivory" | "cream" | "cyberpunk" | "neon" | "gradient" | "sakura" | "silver" | "platinum" | "retro" | "memphis" | "polaroid-plus";
+};
+
+const BORDERS: BorderStyle[] = [
+  { id: "classic_white", label: "Classic White", renderType: "classic-white" },
+  { id: "double_border", label: "Double Frame", renderType: "double" },
+  { id: "luxury_gold", label: "Luxury Gold", renderType: "gold" },
+  { id: "rose_gold", label: "Rose Gold", renderType: "rosegold" },
+  { id: "minimal_black", label: "Minimal Black", renderType: "black" },
+  { id: "modern_matte", label: "Modern Matte", renderType: "matte" },
+  { id: "film_strip", label: "Film Strip", renderType: "filmstrip" },
+  { id: "kodak_style", label: "Kodak Style", renderType: "kodak" },
+  { id: "instax_style", label: "Instax Cozy", renderType: "instax" },
+  { id: "wedding_ivory", label: "Wedding Ivory", renderType: "ivory" },
+  { id: "vintage_cream", label: "Vintage Cream", renderType: "cream" },
+  { id: "cyberpunk", label: "Cyberpunk", renderType: "cyberpunk" },
+  { id: "neon_glow", label: "Neon Glow", renderType: "neon" },
+  { id: "rainbow_gradient", label: "Rainbow", renderType: "gradient" },
+  { id: "sakura", label: "Sakura", renderType: "sakura" },
+  { id: "elegant_silver", label: "Elegant Silver", renderType: "silver" },
+  { id: "luxury_platinum", label: "Platinum", renderType: "platinum" },
+  { id: "retro_90s", label: "Retro 90s", renderType: "retro" },
+  { id: "memphis_design", label: "Memphis Style", renderType: "memphis" },
+  { id: "polaroid_plus", label: "Polaroid Plus", renderType: "polaroid-plus" }
 ];
 
 type BackdropStyle = { id: string; label: string };
 
 const BACKDROPS: BackdropStyle[] = [
-  { id: "stardust", label: "Stardust" },
-  { id: "petals", label: "Petals" },
-  { id: "confetti", label: "Confetti" },
-  { id: "clear", label: "Clear" },
+  { id: "stardust", label: "✨ Sparkles" },
+  { id: "petals", label: "❤️ Hearts" },
+  { id: "flowers", label: "🌸 Flowers" },
+  { id: "stars", label: "⭐ Stars" },
+  { id: "confetti", label: "🎉 Confetti" },
+  { id: "butterflies", label: "🦋 Butterflies" },
+  { id: "snow", label: "❄️ Snow" },
+  { id: "balloons", label: "🎈 Balloons" },
+  { id: "clear", label: "None" },
+];
+
+type ThemePreset = {
+  id: string;
+  label: string;
+  paletteId: string;
+  shapeId: string;
+  backdropId: string;
+  borderId: string;
+  filterId: string;
+};
+
+const THEMES: ThemePreset[] = [
+  { id: "minimal", label: "Minimalist", paletteId: "film", shapeId: "polaroid", backdropId: "clear", borderId: "minimal_black", filterId: "matte" },
+  { id: "wedding", label: "Wedding Day", paletteId: "eclipse", shapeId: "arch", backdropId: "stardust", borderId: "wedding_ivory", filterId: "soft_portrait" },
+  { id: "birthday", label: "Party Time", paletteId: "coral", shapeId: "circle", backdropId: "confetti", borderId: "retro_90s", filterId: "bright_pop" },
+  { id: "cyberpunk", label: "Cyber Neon", paletteId: "midnight", shapeId: "polaroid", backdropId: "confetti", borderId: "cyberpunk", filterId: "cyberpunk" },
+  { id: "luxury", label: "Royal Gold", paletteId: "eclipse", shapeId: "arch", backdropId: "stardust", borderId: "luxury_gold", filterId: "golden_hour" },
+  { id: "vintage", label: "Old Film", paletteId: "eclipse", shapeId: "polaroid", backdropId: "clear", borderId: "vintage_cream", filterId: "vintage" },
+  { id: "aesthetic", label: "Cherry Bloom", paletteId: "bloom", shapeId: "heart", backdropId: "flowers", borderId: "sakura", filterId: "dream" },
 ];
 
 const CONFETTI_COLORS = ["#ff8fab", "#e8b65a", "#b9a7ff", "#7ed9a3", "#ff7a59"];
@@ -158,6 +232,8 @@ function randomCode() {
   return out;
 }
 
+type PhotoLayout = "single" | "strip2" | "strip3" | "strip4" | "grid4";
+
 export default function Page() {
   const [stage, setStage] = useState<Stage>("setup");
   const [myCode, setMyCode] = useState("");
@@ -165,14 +241,40 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
 
+  // Styling Choices
   const [palette, setPalette] = useState<PaletteStyle>(PALETTES[0]);
   const [shape, setShape] = useState<ShapeStyle>(SHAPES[0]);
   const [backdrop, setBackdrop] = useState<BackdropStyle>(BACKDROPS[0]);
+  const [selectedFilter, setSelectedFilter] = useState<FilterStyle>(FILTERS[0]);
+  const [selectedBorder, setSelectedBorder] = useState<BorderStyle>(BORDERS[0]);
+  const [selectedTheme, setSelectedTheme] = useState<string>("custom");
 
+  // Multi-photo layouts
+  const [layout, setLayout] = useState<PhotoLayout>("single");
+
+  // Camera Settings
+  const [mirror, setMirror] = useState<boolean>(true);
+  const [grid, setGrid] = useState<boolean>(false);
+  const [fullscreen, setFullscreen] = useState<boolean>(false);
+  const [flash, setFlash] = useState<boolean>(true);
+  const [brightness, setBrightness] = useState<number>(1.0);
+  const [exposure, setExposure] = useState<number>(1.0);
+
+  // Decoration Options
+  const [decDensity, setDecDensity] = useState<number>(40);
+  const [decOpacity, setDecOpacity] = useState<number>(0.6);
+
+  // Live capturing states
   const [countdown, setCountdown] = useState<number | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [debugOpen, setDebugOpen] = useState(false);
+
+  // Multi-shot sequence
+  const [fps, setFps] = useState<number>(0);
+  const [shotQueue, setShotQueue] = useState<{ local: string; remote: string }[]>([]);
+  const [currentShotNumber, setCurrentShotNumber] = useState<number>(-1);
+  const [flashActive, setFlashActive] = useState<boolean>(false);
 
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -192,9 +294,42 @@ export default function Page() {
   shapeRef.current = shape;
   const backdropRef = useRef(backdrop);
   backdropRef.current = backdrop;
+  const filterRef = useRef(selectedFilter);
+  filterRef.current = selectedFilter;
+  const borderRef = useRef(selectedBorder);
+  borderRef.current = selectedBorder;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const mirrorRef = useRef(mirror);
+  mirrorRef.current = mirror;
+  const densityRef = useRef(decDensity);
+  densityRef.current = decDensity;
+  const opacityRef = useRef(decOpacity);
+  opacityRef.current = decOpacity;
 
   const captureTargetRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // FPS Tracker
+  useEffect(() => {
+    let frameCount = 0;
+    let lastTime = performance.now();
+    let animId: number;
+
+    const trackFps = () => {
+      frameCount++;
+      const time = performance.now();
+      if (time >= lastTime + 1000) {
+        setFps(Math.round((frameCount * 1000) / (time - lastTime)));
+        frameCount = 0;
+        lastTime = time;
+      }
+      animId = requestAnimationFrame(trackFps);
+    };
+
+    trackFps();
+    return () => cancelAnimationFrame(animId);
+  }, []);
 
   const log = useCallback((msg: string, level: LogLevel = "info") => {
     const time =
@@ -212,6 +347,26 @@ export default function Page() {
     captureTargetRef.current = null;
   };
 
+  /* ---------------------- Synth shutter noise (Web Audio) ---------------------- */
+  const playShutter = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {
+      console.warn("Shutter sound failed", e);
+    }
+  };
+
   /* ---------------------------- photo compose ---------------------------- */
 
   const drawBackdropSprinkle = (
@@ -223,24 +378,28 @@ export default function Page() {
   ) => {
     if (id === "clear") return;
     const usableH = H - 150;
+    ctx.save();
+    ctx.globalAlpha = opacityRef.current;
+    ctx.fillStyle = ringColor;
+
+    const density = densityRef.current;
+
     if (id === "stardust") {
-      ctx.fillStyle = "rgba(245,239,230,0.5)";
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < density; i++) {
         const x = Math.random() * W;
         const y = Math.random() * usableH;
         ctx.beginPath();
-        ctx.arc(x, y, Math.random() * 1.3, 0, Math.PI * 2);
+        ctx.arc(x, y, Math.random() * 2 + 1, 0, Math.PI * 2);
         ctx.fill();
       }
     } else if (id === "petals") {
       const heart = new Path2D(SHAPE_PATHS.heart);
-      for (let i = 0; i < 26; i++) {
+      for (let i = 0; i < density / 2; i++) {
         const x = Math.random() * W;
         const y = Math.random() * usableH;
         const s = 8 + Math.random() * 10;
         ctx.save();
-        ctx.globalAlpha = 0.22 + Math.random() * 0.25;
-        ctx.fillStyle = ringColor;
+        ctx.fillStyle = "#ff8fab";
         ctx.translate(x, y);
         ctx.rotate((Math.random() - 0.5) * 0.6);
         ctx.scale(s, s);
@@ -248,124 +407,497 @@ export default function Page() {
         ctx.fill(heart);
         ctx.restore();
       }
+    } else if (id === "flowers") {
+      for (let i = 0; i < density / 2; i++) {
+        const x = Math.random() * W;
+        const y = Math.random() * usableH;
+        const size = Math.random() * 12 + 6;
+        drawFlower(ctx, x, y, size);
+      }
+    } else if (id === "stars") {
+      for (let i = 0; i < density; i++) {
+        const x = Math.random() * W;
+        const y = Math.random() * usableH;
+        const size = Math.random() * 8 + 4;
+        drawStar(ctx, x, y, 5, size, size / 2, ringColor);
+      }
     } else if (id === "confetti") {
-      for (let i = 0; i < 55; i++) {
+      for (let i = 0; i < density; i++) {
         const x = Math.random() * W;
         const y = Math.random() * usableH;
         ctx.save();
-        ctx.globalAlpha = 0.55 + Math.random() * 0.3;
         ctx.fillStyle = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
         ctx.translate(x, y);
         ctx.rotate(Math.random() * Math.PI);
         ctx.fillRect(-3, -1.5, 6, 3);
         ctx.restore();
       }
+    } else if (id === "butterflies") {
+      for (let i = 0; i < density / 2; i++) {
+        const x = Math.random() * W;
+        const y = Math.random() * usableH;
+        const size = Math.random() * 10 + 6;
+        drawButterfly(ctx, x, y, size);
+      }
+    } else if (id === "snow") {
+      ctx.fillStyle = "#FFF";
+      for (let i = 0; i < density; i++) {
+        const x = Math.random() * W;
+        const y = Math.random() * usableH;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.random() * 3 + 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (id === "balloons") {
+      for (let i = 0; i < density / 4; i++) {
+        const x = Math.random() * W;
+        const y = Math.random() * usableH;
+        const color = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+        drawBalloon(ctx, x, y, 20, color);
+      }
     }
+    ctx.restore();
   };
 
-  // Clips `video` into the shape `d` (unit path) centered at (cx, cy) with
-  // bounding box `size`, mirrored like a selfie camera.
-  const drawShapeVideo = (
+  const drawStar = (ctx: CanvasRenderingContext2D, cx: number, cy: number, spikes: number, outerRadius: number, innerRadius: number, color: string) => {
+    let rot = (Math.PI / 2) * 3;
+    let x = cx;
+    let y = cy;
+    let step = Math.PI / spikes;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+      x = cx + Math.cos(rot) * outerRadius;
+      y = cy + Math.sin(rot) * outerRadius;
+      ctx.lineTo(x, y);
+      rot += step;
+      x = cx + Math.cos(rot) * innerRadius;
+      y = cy + Math.sin(rot) * innerRadius;
+      ctx.lineTo(x, y);
+      rot += step;
+    }
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawFlower = (ctx: CanvasRenderingContext2D, x: number, cy: number, size: number) => {
+    ctx.save();
+    ctx.translate(x, cy);
+    ctx.fillStyle = "#FFB7C5";
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.arc(0, -size / 2, size / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.rotate((Math.PI * 2) / 5);
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, size / 3, 0, Math.PI * 2);
+    ctx.fillStyle = "#FFF9E6";
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawButterfly = (ctx: CanvasRenderingContext2D, x: number, cy: number, size: number) => {
+    ctx.save();
+    ctx.translate(x, cy);
+    ctx.fillStyle = "#A78BFA";
+    ctx.beginPath();
+    ctx.ellipse(-size / 2, -size / 3, size / 2, size / 3, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-size / 2, size / 3, size / 2.5, size / 4, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(size / 2, -size / 3, size / 2, size / 3, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(size / 2, size / 3, size / 2.5, size / 4, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#3D2B56";
+    ctx.fillRect(-1.5, -size, 3, size * 1.8);
+    ctx.restore();
+  };
+
+  const drawBalloon = (ctx: CanvasRenderingContext2D, x: number, cy: number, size: number, color: string) => {
+    ctx.save();
+    ctx.translate(x, cy);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size * 0.7, size, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, size);
+    ctx.quadraticCurveTo(5, size + 10, -5, size + 20);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  // Capture helper for single camera feed
+  const captureCamFrame = (video: HTMLVideoElement, isMirrored: boolean) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    ctx.save();
+    if (isMirrored) {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    return canvas.toDataURL("image/png");
+  };
+
+  // Clips `image` data URL into the shape `d` centered at (cx, cy)
+  const drawShapeImage = (
     ctx: CanvasRenderingContext2D,
-    video: HTMLVideoElement,
+    imgSrc: string,
     d: string,
     cx: number,
     cy: number,
     size: number
   ) => {
+    const img = new Image();
+    img.src = imgSrc;
+    if (!img.complete) return; // Make sure it loads
+
     ctx.save();
     ctx.translate(cx - size / 2, cy - size / 2);
     ctx.scale(size, size);
     ctx.clip(new Path2D(d));
-    // undo the transform while keeping the clip mask, so the video draws
-    // at native pixel coordinates
     ctx.scale(1 / size, 1 / size);
     ctx.translate(-(cx - size / 2), -(cy - size / 2));
 
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 480;
-    const scale = Math.max(size / vw, size / vh);
-    const dw = vw * scale;
-    const dh = vh * scale;
-    ctx.translate(cx, cy);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, -dw / 2, -dh / 2, dw, dh);
+    const iw = img.naturalWidth || 640;
+    const ih = img.naturalHeight || 480;
+    const scale = Math.max(size / iw, size / ih);
+    const dw = iw * scale;
+    const dh = ih * scale;
+    ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
     ctx.restore();
   };
 
+  // Upgraded custom border rendering in canvas
   const drawShapeRim = (
     ctx: CanvasRenderingContext2D,
     d: string,
     cx: number,
     cy: number,
     size: number,
-    ring: string
+    borderStyle: BorderStyle,
+    ringColor: string
   ) => {
     ctx.save();
     ctx.translate(cx - size / 2, cy - size / 2);
     ctx.scale(size, size);
-    ctx.lineWidth = 6 / size;
-    ctx.strokeStyle = ring;
-    ctx.stroke(new Path2D(d));
+
+    const strokeWidth = 8 / size;
+    ctx.lineWidth = strokeWidth;
+
+    if (borderStyle.renderType === "classic-white") {
+      ctx.strokeStyle = "#FFFFFF";
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "double") {
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 4 / size;
+      ctx.stroke(new Path2D(d));
+      // Outer border outline
+      ctx.save();
+      ctx.scale(1.04, 1.04);
+      ctx.translate(-0.02, -0.02);
+      ctx.lineWidth = 2 / size;
+      ctx.stroke(new Path2D(d));
+      ctx.restore();
+    } else if (borderStyle.renderType === "gold") {
+      const grad = ctx.createLinearGradient(0, 0, 1, 1);
+      grad.addColorStop(0, "#D4AF37");
+      grad.addColorStop(0.3, "#FFF9E6");
+      grad.addColorStop(0.5, "#AA7C11");
+      grad.addColorStop(0.8, "#FFF9E6");
+      grad.addColorStop(1, "#D4AF37");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 10 / size;
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "rosegold") {
+      const grad = ctx.createLinearGradient(0, 0, 1, 1);
+      grad.addColorStop(0, "#B76E79");
+      grad.addColorStop(0.5, "#FFD1DC");
+      grad.addColorStop(1, "#B76E79");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 10 / size;
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "black") {
+      ctx.strokeStyle = "#111827";
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "matte") {
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 4 / size;
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "filmstrip") {
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 12 / size;
+      ctx.stroke(new Path2D(d));
+      ctx.strokeStyle = "#FFF";
+      ctx.lineWidth = 2 / size;
+      ctx.setLineDash([0.02, 0.04]);
+      ctx.stroke(new Path2D(d));
+      ctx.setLineDash([]);
+    } else if (borderStyle.renderType === "neon") {
+      ctx.shadowColor = ringColor;
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = "#FFF";
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "gradient") {
+      const grad = ctx.createLinearGradient(0, 0, 1, 1);
+      grad.addColorStop(0, "#7C3AED");
+      grad.addColorStop(0.5, "#EC4899");
+      grad.addColorStop(1, "#06B6D4");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 10 / size;
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "sakura") {
+      ctx.strokeStyle = "#FFB7C5";
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "silver") {
+      const grad = ctx.createLinearGradient(0, 0, 1, 1);
+      grad.addColorStop(0, "#C0C0C0");
+      grad.addColorStop(0.5, "#FFFFFF");
+      grad.addColorStop(1, "#808080");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 9 / size;
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "platinum") {
+      const grad = ctx.createLinearGradient(0, 0, 1, 1);
+      grad.addColorStop(0, "#E5E4E2");
+      grad.addColorStop(0.5, "#F8FAFC");
+      grad.addColorStop(1, "#B4B2B0");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 9 / size;
+      ctx.stroke(new Path2D(d));
+    } else if (borderStyle.renderType === "cyberpunk") {
+      ctx.strokeStyle = "#EC4899";
+      ctx.stroke(new Path2D(d));
+      ctx.save();
+      ctx.scale(1.03, 1.03);
+      ctx.translate(-0.015, -0.015);
+      ctx.strokeStyle = "#06B6D4";
+      ctx.stroke(new Path2D(d));
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = ringColor;
+      ctx.stroke(new Path2D(d));
+    }
+
     ctx.restore();
   };
 
-  const drawPhoto = useCallback(() => {
+  // Main high-resolution Canvas composite assembly
+  const composeFinalPhoto = useCallback((shots: { local: string; remote: string }[]) => {
     const canvas = canvasRef.current;
-    const localVideo = localVideoRef.current;
-    const remoteVideo = remoteVideoRef.current;
-    if (!canvas || !localVideo || !remoteVideo) return;
+    if (!canvas || shots.length === 0) return;
     const p = paletteRef.current;
     const s = shapeRef.current;
     const b = backdropRef.current;
+    const f = filterRef.current;
+    const border = borderRef.current;
+    const currentLayout = layoutRef.current;
 
-    const W = 960;
-    const H = 680;
+    let W = 960;
+    let H = 680;
+
+    // Adjust canvas dimensions for vertical strips vs grids
+    if (currentLayout === "strip3") {
+      W = 540;
+      H = 1200;
+    } else if (currentLayout === "strip4") {
+      W = 540;
+      H = 1500;
+    } else if (currentLayout === "grid4") {
+      W = 900;
+      H = 900;
+    }
+
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Paper backing background fill
     ctx.fillStyle = p.id === "coral" || p.id === "bloom" ? "#2a1a1e" : "#0d0e18";
     ctx.fillRect(0, 0, W, H);
 
+    // Apply snapchat-style filter onto canvas draw operations
+    if (f.cssVal !== "none") {
+      ctx.filter = f.cssVal;
+    }
+
     drawBackdropSprinkle(ctx, b.id, W, H, p.ring);
 
-    const size = 300;
-    const cy = 250;
-    const leftCx = W / 2 - 95;
-    const rightCx = W / 2 + 95;
+    // Composite layouts
+    if (currentLayout === "single") {
+      const size = 300;
+      const cy = 250;
+      const leftCx = W / 2 - 95;
+      const rightCx = W / 2 + 95;
 
-    drawShapeVideo(ctx, remoteVideo, s.d, rightCx, cy, size);
-    drawShapeVideo(ctx, localVideo, s.d, leftCx, cy, size);
-    drawShapeRim(ctx, s.d, leftCx, cy, size, p.ring);
-    drawShapeRim(ctx, s.d, rightCx, cy, size, p.ring);
+      const latestShot = shots[shots.length - 1];
+      drawShapeImage(ctx, latestShot.remote, s.d, rightCx, cy, size);
+      drawShapeImage(ctx, latestShot.local, s.d, leftCx, cy, size);
 
-    const stripH = 150;
-    ctx.fillStyle = p.paper;
-    ctx.fillRect(0, H - stripH, W, stripH);
+      ctx.filter = "none"; // reset filter for margins/paper
+      drawShapeRim(ctx, s.d, leftCx, cy, size, border, p.ring);
+      drawShapeRim(ctx, s.d, rightCx, cy, size, border, p.ring);
 
-    ctx.fillStyle = p.ink;
-    ctx.font = "600 26px Georgia, serif";
-    ctx.textAlign = "center";
-    ctx.fillText(p.caption, W / 2, H - stripH + 55);
+      const stripH = 150;
+      ctx.fillStyle = p.paper;
+      ctx.fillRect(0, H - stripH, W, stripH);
 
-    const date = new Date();
-    const dateStr = date.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-    ctx.font = "400 15px monospace";
-    ctx.globalAlpha = 0.7;
-    ctx.fillText(`same sky · ${dateStr}`, W / 2, H - stripH + 90);
+      ctx.fillStyle = p.ink;
+      ctx.font = "600 26px var(--font-display), sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.caption, W / 2, H - stripH + 55);
+
+      const dateStr = new Date().toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+      ctx.font = "400 15px var(--font-mono), monospace";
+      ctx.globalAlpha = 0.7;
+      ctx.fillText(`same sky · ${dateStr}`, W / 2, H - stripH + 90);
+    } 
+    else if (currentLayout === "strip3" || currentLayout === "strip4") {
+      // 3 or 4 photos vertical strip
+      const rowCount = currentLayout === "strip3" ? 3 : 4;
+      const boxSize = 200;
+      const usableHeight = H - 180;
+      const spacing = usableHeight / rowCount;
+
+      for (let i = 0; i < rowCount; i++) {
+        const shot = shots[i] || shots[shots.length - 1];
+        if (!shot) continue;
+        const cy = 130 + i * spacing;
+        const leftCx = W / 2 - 105;
+        const rightCx = W / 2 + 105;
+
+        drawShapeImage(ctx, shot.remote, s.d, rightCx, cy, boxSize);
+        drawShapeImage(ctx, shot.local, s.d, leftCx, cy, boxSize);
+
+        ctx.filter = "none";
+        drawShapeRim(ctx, s.d, leftCx, cy, boxSize, border, p.ring);
+        drawShapeRim(ctx, s.d, rightCx, cy, boxSize, border, p.ring);
+        if (f.cssVal !== "none") ctx.filter = f.cssVal;
+      }
+
+      ctx.filter = "none";
+      const stripH = 120;
+      ctx.fillStyle = p.paper;
+      ctx.fillRect(0, H - stripH, W, stripH);
+
+      ctx.fillStyle = p.ink;
+      ctx.font = "600 20px var(--font-display), sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("same sky booth · strip cut", W / 2, H - stripH + 45);
+
+      ctx.font = "400 13px var(--font-mono), monospace";
+      ctx.globalAlpha = 0.7;
+      ctx.fillText(new Date().toLocaleDateString(), W / 2, H - stripH + 75);
+    } 
+    else if (currentLayout === "grid4") {
+      // 2x2 grid layout
+      const boxSize = 210;
+      const rowY1 = 200;
+      const rowY2 = 500;
+      const colX1 = W / 4;
+      const colX2 = (3 * W) / 4;
+
+      const points = [
+        { cx: colX1, cy: rowY1 },
+        { cx: colX2, cy: rowY1 },
+        { cx: colX1, cy: rowY2 },
+        { cx: colX2, cy: rowY2 }
+      ];
+
+      for (let i = 0; i < 4; i++) {
+        const shot = shots[i] || shots[shots.length - 1];
+        if (!shot) continue;
+        const pt = points[i];
+
+        // Draw local and remote slightly overlapped or combined in each slot
+        drawShapeImage(ctx, shot.remote, s.d, pt.cx + 40, pt.cy, boxSize);
+        drawShapeImage(ctx, shot.local, s.d, pt.cx - 40, pt.cy, boxSize);
+
+        ctx.filter = "none";
+        drawShapeRim(ctx, s.d, pt.cx - 40, pt.cy, boxSize, border, p.ring);
+        drawShapeRim(ctx, s.d, pt.cx + 40, pt.cy, boxSize, border, p.ring);
+        if (f.cssVal !== "none") ctx.filter = f.cssVal;
+      }
+
+      ctx.filter = "none";
+      const stripH = 110;
+      ctx.fillStyle = p.paper;
+      ctx.fillRect(0, H - stripH, W, stripH);
+
+      ctx.fillStyle = p.ink;
+      ctx.font = "600 22px var(--font-display), sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("same sky booth · grid 4", W / 2, H - stripH + 45);
+    }
+
     ctx.globalAlpha = 1;
-
+    ctx.filter = "none";
     setPhoto(canvas.toDataURL("image/png"));
     setStage("result");
     setCountdown(null);
-    log("Photo captured and composed.", "success");
+    setCurrentShotNumber(-1);
+    log("High-resolution Polaroid photo composed.", "success");
   }, [log]);
+
+  const processCaptureSequence = useCallback(async (shotsAccumulated: { local: string; remote: string }[]) => {
+    const localVideo = localVideoRef.current;
+    const remoteVideo = remoteVideoRef.current;
+    if (!localVideo || !remoteVideo) return;
+
+    // Determine how many captures needed
+    let totalNeeded = 1;
+    if (layoutRef.current === "strip2") totalNeeded = 2;
+    else if (layoutRef.current === "strip3") totalNeeded = 3;
+    else if (layoutRef.current === "strip4") totalNeeded = 4;
+    else if (layoutRef.current === "grid4") totalNeeded = 4;
+
+    const shotIndex = shotsAccumulated.length;
+    setCurrentShotNumber(shotIndex + 1);
+
+    // Save camera frame
+    playShutter();
+    if (flash) {
+      setFlashActive(true);
+      setTimeout(() => setFlashActive(false), 200);
+    }
+
+    const localFrame = captureCamFrame(localVideo, mirrorRef.current);
+    const remoteFrame = captureCamFrame(remoteVideo, false);
+    const nextShots = [...shotsAccumulated, { local: localFrame, remote: remoteFrame }];
+
+    if (nextShots.length >= totalNeeded) {
+      composeFinalPhoto(nextShots);
+    } else {
+      // Loop to next capture
+      log(`Captured shot ${nextShots.length} of ${totalNeeded}. Next in 3 seconds…`);
+      setCountdown(3);
+      setTimeout(() => {
+        processCaptureSequence(nextShots);
+      }, 3000);
+    }
+  }, [flash, composeFinalPhoto, log]);
 
   const beginSyncedCountdown = useCallback(
     (targetTime: number) => {
@@ -377,21 +909,20 @@ export default function Page() {
         if (remaining <= 0) {
           cleanupCountdown();
           setCountdown(0);
-          setTimeout(() => drawPhoto(), 80);
+          // Launch the capture sequence loops
+          setTimeout(() => processCaptureSequence([]), 100);
         } else {
           setCountdown(secs);
         }
       }, 100);
     },
-    [drawPhoto]
+    [processCaptureSequence]
   );
 
   const sendAppMessage = (msg: any) => {
     const ch = dataChannelRef.current;
     if (ch && ch.readyState === "open") {
       ch.send(JSON.stringify(msg));
-    } else {
-      log(`Tried to send "${msg.type}" but data channel isn't open yet.`, "error");
     }
   };
 
@@ -401,6 +932,12 @@ export default function Page() {
       paletteId: paletteRef.current.id,
       shapeId: shapeRef.current.id,
       backdropId: backdropRef.current.id,
+      filterId: filterRef.current.id,
+      borderId: borderRef.current.id,
+      layout: layoutRef.current,
+      mirror: mirrorRef.current,
+      density: densityRef.current,
+      opacity: opacityRef.current
     });
   }, []);
 
@@ -409,7 +946,7 @@ export default function Page() {
       dataChannelRef.current = channel;
       channel.onopen = () => {
         setConnected(true);
-        log("Data channel open — style picks and countdown will sync now.", "success");
+        log("Connected successfully — selections synchronized.", "success");
       };
       channel.onclose = () => {
         setConnected(false);
@@ -423,11 +960,19 @@ export default function Page() {
             const p = PALETTES.find((x) => x.id === data.paletteId);
             const s = SHAPES.find((x) => x.id === data.shapeId);
             const b = BACKDROPS.find((x) => x.id === data.backdropId);
+            const f = FILTERS.find((x) => x.id === data.filterId);
+            const br = BORDERS.find((x) => x.id === data.borderId);
             if (p) setPalette(p);
             if (s) setShape(s);
             if (b) setBackdrop(b);
+            if (f) setSelectedFilter(f);
+            if (br) setSelectedBorder(br);
+            if (data.layout) setLayout(data.layout);
+            if (data.mirror !== undefined) setMirror(data.mirror);
+            if (data.density !== undefined) setDecDensity(data.density);
+            if (data.opacity !== undefined) setDecOpacity(data.opacity);
           } else if (data?.type === "countdown") {
-            log("Partner started the countdown.", "info");
+            log("Partner initiated the countdown.", "info");
             beginSyncedCountdown(data.targetTime);
           } else if (data?.type === "restart") {
             setPhoto(null);
@@ -453,67 +998,31 @@ export default function Page() {
 
       pc.onicecandidate = (e) => {
         if (e.candidate) {
-          const type =
-            e.candidate.type ||
-            (e.candidate.candidate.includes("typ relay")
-              ? "relay"
-              : e.candidate.candidate.includes("typ srflx")
-              ? "srflx"
-              : "host");
-          log(
-            `Gathered ICE candidate (${type}): ${e.candidate.protocol} ${e.candidate.address}:${e.candidate.port}`
-          );
           socketRef.current?.emit("signal", {
             type: "candidate",
             candidate: e.candidate.toJSON(),
           });
-        } else {
-          log("Finished gathering ICE candidates.", "success");
         }
       };
 
       pc.oniceconnectionstatechange = () => {
         const state = pc.iceConnectionState;
         log(
-          `ICE connection state: ${state}`,
-          state === "failed"
-            ? "error"
-            : state === "connected" || state === "completed"
-            ? "success"
-            : "info"
+          `ICE state: ${state}`,
+          state === "failed" ? "error" : state === "connected" || state === "completed" ? "success" : "info"
         );
         if (state === "failed") {
-          setError(
-            "Couldn't establish a direct connection — this can happen on some networks. Try again or switch networks."
-          );
-          pc.getStats().then((stats) => {
-            let activeCandidatePair = false;
-            stats.forEach((report) => {
-              if (report.type === "candidate-pair" && report.state === "succeeded") {
-                activeCandidatePair = true;
-              }
-            });
-            if (!activeCandidatePair) {
-              log("No valid ICE candidate pair was found. TURN server likely blocked or unreachable.", "error");
-            }
-          });
+          setError("Couldn't establish connection. Try resetting or switching networks.");
         }
-      };
-
-      pc.onconnectionstatechange = () => {
-        log(`Peer connection state: ${pc.connectionState}`);
       };
 
       pc.ontrack = (e) => {
-        log("Remote video track received.", "success");
+        log("Partner stream link active.", "success");
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = e.streams[0];
-          remoteVideoRef.current.play().catch((err) =>
-            log(`Remote video play() failed: ${err.message}`, "error")
-          );
+          remoteVideoRef.current.play().catch(() => {});
         }
         setStage((s) => (s === "result" ? s : "live"));
-        // give the partner our current look once we're actually connected
         setTimeout(() => sendStyle(), 300);
       };
 
@@ -537,7 +1046,7 @@ export default function Page() {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(c));
       } catch (err: any) {
-        log(`Failed to add queued ICE candidate: ${err.message}`, "error");
+        log(`Failed ICE candidate queue: ${err.message}`, "error");
       }
     }
   }, [log]);
@@ -545,7 +1054,6 @@ export default function Page() {
   const handleSignal = useCallback(
     async (data: any) => {
       if (data.type === "offer") {
-        log("Received offer from partner.");
         if (!pcRef.current) createPeerConnection(false);
         const pc = pcRef.current!;
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
@@ -553,9 +1061,7 @@ export default function Page() {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socketRef.current?.emit("signal", { type: "answer", sdp: answer });
-        log("Sent answer back to partner.");
       } else if (data.type === "answer") {
-        log("Received answer from partner.");
         const pc = pcRef.current;
         if (!pc) return;
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
@@ -566,7 +1072,7 @@ export default function Page() {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
           } catch (err: any) {
-            log(`Failed to add ICE candidate: ${err.message}`, "error");
+            log(`Failed ICE candidate: ${err.message}`, "error");
           }
         } else {
           pendingCandidatesRef.current.push(data.candidate);
@@ -581,77 +1087,60 @@ export default function Page() {
       roomRef.current = room;
       roleRef.current = role;
 
-      log(`Pinging ${SIGNALING_URL} to wake it up (free-tier servers can sleep)…`);
-      const wakeStart = performance.now();
+      log("Waking up photo-booth signaling server…");
       try {
         await fetch(`${SIGNALING_URL}/health`, { mode: "cors" });
-        log(`Server responded in ${(performance.now() - wakeStart).toFixed(0)}ms.`, "success");
-      } catch (err: any) {
-        log(`Wake-up ping failed (${err.message}). It may still be starting up — continuing anyway.`, "error");
-      }
+      } catch (err) {}
 
-      log(`Connecting to signaling server at ${SIGNALING_URL}…`);
-      const t0 = performance.now();
+      log(`Connecting to room room:${room}…`);
       const { io } = await import("socket.io-client");
       const socket = io(SIGNALING_URL, {
         transports: ["websocket", "polling"],
-        timeout: 45000,
-        reconnectionAttempts: 5,
+        timeout: 25000,
+        reconnectionAttempts: 3,
       });
       socketRef.current = socket;
 
       socket.on("connect", () => {
-        log(`Socket connected in ${(performance.now() - t0).toFixed(0)}ms.`, "success");
         socket.emit("join", room);
       });
 
-      socket.on("connect_error", (err) => {
-        log(`Socket connection error: ${err.message}`, "error");
-        setError("Couldn't reach the signaling server. Check the server URL and that it's running.");
+      socket.on("connect_error", () => {
+        setError("Signaling link failed. Please check internet connection.");
       });
 
       socket.on("role", async (assignedRole: "host" | "guest") => {
-        log(`Server confirmed role: ${assignedRole}.`, "success");
         if (assignedRole === "guest") {
           const pc = createPeerConnection(true);
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           socket.emit("signal", { type: "offer", sdp: offer });
-          log("Sent offer to partner.");
         }
       });
 
-      socket.on("peer-joined", () => {
-        log("Partner joined the room.", "success");
-      });
-
       socket.on("peer-left", () => {
-        log("Partner disconnected.", "error");
-        setError("Your partner disconnected.");
+        setError("Partner disconnected.");
         setConnected(false);
       });
 
       socket.on("room-full", () => {
-        log("Room is already full.", "error");
-        setError("That session already has two people in it.");
+        setError("Session room is full.");
         setStage("setup");
       });
 
       socket.on("signal", (data: any) => {
-        handleSignal(data).catch((err) => log(`Signal handling error: ${err.message}`, "error"));
+        handleSignal(data).catch(() => {});
       });
     },
     [createPeerConnection, handleSignal, log]
   );
 
   const getCamera = async () => {
-    log("Requesting camera access…");
-    const t0 = performance.now();
+    log("Opening webcam…");
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: 640, height: 480 },
       audio: false,
     });
-    log(`Camera ready in ${(performance.now() - t0).toFixed(0)}ms.`, "success");
     localStreamRef.current = stream;
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
@@ -665,8 +1154,7 @@ export default function Page() {
     try {
       await getCamera();
     } catch (err: any) {
-      log(`Camera access failed: ${err.message}`, "error");
-      setError("Camera access is needed to start a session.");
+      setError("Webcam permissions required.");
       return;
     }
     const code = randomCode();
@@ -679,31 +1167,39 @@ export default function Page() {
     setError(null);
     const target = joinInput.trim().toLowerCase();
     if (!target) {
-      setError("Enter your partner's code first.");
+      setError("Please enter a valid booth code.");
       return;
     }
     try {
       await getCamera();
     } catch (err: any) {
-      log(`Camera access failed: ${err.message}`, "error");
-      setError("Camera access is needed to join.");
+      setError("Webcam permissions required.");
       return;
     }
     setStage("joining");
     connectSocket(target, "guest");
   };
 
-  const pickPalette = (p: PaletteStyle) => {
-    setPalette(p);
-    setTimeout(sendStyle, 0);
-  };
-  const pickShape = (s: ShapeStyle) => {
-    setShape(s);
-    setTimeout(sendStyle, 0);
-  };
-  const pickBackdrop = (b: BackdropStyle) => {
-    setBackdrop(b);
-    setTimeout(sendStyle, 0);
+  const applyTheme = (themeId: string) => {
+    setSelectedTheme(themeId);
+    if (themeId === "custom") return;
+
+    const th = THEMES.find((x) => x.id === themeId);
+    if (th) {
+      const pal = PALETTES.find((x) => x.id === th.paletteId);
+      const sh = SHAPES.find((x) => x.id === th.shapeId);
+      const bd = BACKDROPS.find((x) => x.id === th.backdropId);
+      const filt = FILTERS.find((x) => x.id === th.filterId);
+      const bord = BORDERS.find((x) => x.id === th.borderId);
+
+      if (pal) setPalette(pal);
+      if (sh) setShape(sh);
+      if (bd) setBackdrop(bd);
+      if (filt) setSelectedFilter(filt);
+      if (bord) setSelectedBorder(bord);
+
+      setTimeout(() => sendStyle(), 50);
+    }
   };
 
   const triggerCapture = () => {
@@ -722,7 +1218,7 @@ export default function Page() {
     if (!photo) return;
     const a = document.createElement("a");
     a.href = photo;
-    a.download = "same-sky.png";
+    a.download = "samesky-polaroid.png";
     a.click();
   };
 
@@ -735,8 +1231,6 @@ export default function Page() {
     };
   }, []);
 
-  const pageGlow = palette.glow;
-
   return (
     <main
       style={{
@@ -745,40 +1239,105 @@ export default function Page() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: "32px 20px 200px",
-        background: pageGlow,
-        transition: "background 0.6s ease",
+        padding: "24px 16px 140px",
+        background: palette.glow,
+        transition: "background 0.5s ease",
       }}
     >
-      <GlobalBits />
+      {/* Visual shutter flash screen */}
+      <div className={`shutter-flash ${flashActive ? "active" : ""}`} />
 
+      {/* Header bar */}
+      <header
+        className="glass-panel"
+        style={{
+          width: "100%",
+          maxWidth: 960,
+          padding: "12px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "between",
+          marginBottom: 28,
+          borderRadius: 16,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 24 }}>📸</span>
+          <div>
+            <h1 className="wordmark" style={{ fontSize: 20, margin: 0 }}>Same Sky</h1>
+            <p style={{ fontSize: 10, color: "var(--secondary)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Polaroid v2 Premium Booth</p>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+          {connected ? (
+            <span className="recording-indicator" style={{ border: "1px solid var(--success)", color: "var(--success)" }}>
+              <span className="recording-dot" style={{ backgroundColor: "var(--success)" }}></span> SYNCED
+            </span>
+          ) : (
+            <span className="recording-indicator">
+              <span className="recording-dot"></span> OFFLINE
+            </span>
+          )}
+          <button className="btn-ghost" style={{ padding: "8px 16px", fontSize: 12 }} onClick={() => setDebugOpen(!debugOpen)}>
+            ⚙️ Logs
+          </button>
+        </div>
+      </header>
+
+      {/* Stages layout */}
       {stage === "setup" && (
-        <SetupScreen
-          joinInput={joinInput}
-          setJoinInput={setJoinInput}
-          onHost={startHost}
-          onJoin={joinSession}
-          error={error}
-        />
+        <div className="glass-panel animate-fade-in" style={{ maxWidth: 480, width: "100%", padding: 36, textAlign: "center" }}>
+          <p className="eyebrow" style={{ marginBottom: 8 }}>Luxury Self Photo Booth</p>
+          <h2 style={{ fontSize: 32, marginBottom: 12 }}>Connect Cameras</h2>
+          <p style={{ opacity: 0.7, fontSize: 14, marginBottom: 28 }}>
+            Synchronized countdowns, premium real-time filters, borders, and overlays. Connect with your partner to capture memories together.
+          </p>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={{ padding: 24, background: "rgba(255,255,255,0.02)", borderRadius: 16, border: "1px solid var(--glass-border)" }}>
+              <p style={{ fontWeight: 600, marginBottom: 12, fontSize: 15 }}>Create a New Booth</p>
+              <button className="btn-primary" style={{ width: "100%" }} onClick={startHost}>
+                Generate Code
+              </button>
+            </div>
+
+            <div style={{ padding: 24, background: "rgba(255,255,255,0.02)", borderRadius: 16, border: "1px solid var(--glass-border)" }}>
+              <p style={{ fontWeight: 600, marginBottom: 12, fontSize: 15 }}>Enter Partner's Code</p>
+              <input
+                className="code-input"
+                placeholder="00000"
+                value={joinInput}
+                onChange={(e) => setJoinInput(e.target.value)}
+                maxLength={5}
+                style={{ marginBottom: 16 }}
+              />
+              <button className="btn-ghost" style={{ width: "100%" }} onClick={joinSession}>
+                Connect Booth
+              </button>
+            </div>
+          </div>
+
+          {error && <p style={{ color: "var(--accent)", marginTop: 16, fontSize: 14 }}>{error}</p>}
+        </div>
       )}
 
       {(stage === "waiting" || stage === "joining") && (
-        <div className="card" style={{ padding: 48, textAlign: "center", maxWidth: 440 }}>
+        <div className="glass-panel animate-fade-in" style={{ padding: 48, textAlign: "center", maxWidth: 440, width: "100%" }}>
           <p className="eyebrow" style={{ marginBottom: 14 }}>
-            {stage === "waiting" ? "Waiting for your partner" : "Connecting…"}
+            {stage === "waiting" ? "Waiting for Partner" : "Connecting Peer Links…"}
           </p>
           {stage === "waiting" && (
             <>
-              <p style={{ opacity: 0.75, marginBottom: 20, fontSize: 15 }}>
-                Send them this code. As soon as they enter it, you'll both appear on screen.
+              <p style={{ opacity: 0.7, marginBottom: 24, fontSize: 14 }}>
+                Provide this session code to your partner to automatically link camera feeds.
               </p>
               <div
                 className="wordmark"
                 style={{
-                  fontSize: 40,
-                  letterSpacing: "0.08em",
-                  color: "var(--coral)",
-                  marginBottom: 24,
+                  fontSize: 48,
+                  letterSpacing: "0.12em",
+                  marginBottom: 28,
                   textTransform: "uppercase",
                 }}
               >
@@ -786,34 +1345,439 @@ export default function Page() {
               </div>
             </>
           )}
-          <PulseDots color={palette.ring} />
-          {error && <p style={{ color: "var(--coral)", marginTop: 18, fontSize: 14 }}>{error}</p>}
+          <PulseDots color="var(--primary)" />
+          {error && <p style={{ color: "var(--accent)", marginTop: 18, fontSize: 14 }}>{error}</p>}
         </div>
       )}
 
       {(stage === "live" || stage === "result") && (
-        <BoothScreen
-          stage={stage}
-          palette={palette}
-          palettes={PALETTES}
-          onPickPalette={pickPalette}
-          shape={shape}
-          shapes={SHAPES}
-          onPickShape={pickShape}
-          backdrop={backdrop}
-          backdrops={BACKDROPS}
-          onPickBackdrop={pickBackdrop}
-          onCapture={triggerCapture}
-          countdown={countdown}
-          localVideoRef={localVideoRef}
-          remoteVideoRef={remoteVideoRef}
-          connected={connected}
-          photo={photo}
-          onRetake={retake}
-          onDownload={downloadPhoto}
-        />
+        <div className="animate-fade-in" style={{ width: "100%", maxWidth: 960 }}>
+          {stage === "live" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
+              
+              {/* Left Column: Live Camera Sandbox */}
+              <div className="glass-panel" style={{ padding: 20 }}>
+                {/* Floating Toggles HUD */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 16,
+                  }}
+                >
+                  <span className="recording-indicator">
+                    <span className="recording-dot"></span> Live webcam · {fps} FPS
+                  </span>
+
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: "6px 12px", fontSize: 11, borderColor: grid ? "var(--secondary)" : "var(--glass-border)" }}
+                      onClick={() => setGrid(!grid)}
+                    >
+                      Grid
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: "6px 12px", fontSize: 11, borderColor: mirror ? "var(--secondary)" : "var(--glass-border)" }}
+                      onClick={() => {
+                        setMirror(!mirror);
+                        setTimeout(() => sendStyle(), 50);
+                      }}
+                    >
+                      Mirror
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: "6px 12px", fontSize: 11, borderColor: flash ? "var(--secondary)" : "var(--glass-border)" }}
+                      onClick={() => setFlash(!flash)}
+                    >
+                      Flash
+                    </button>
+                  </div>
+                </div>
+
+                {/* Main Camera Frame Viewport */}
+                <div
+                  style={{
+                    position: "relative",
+                    aspectRatio: "1.4",
+                    borderRadius: 20,
+                    overflow: "hidden",
+                    background: "#05050A",
+                    border: "1px solid var(--glass-border)",
+                    boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {/* Backdrop float animation particles overlay */}
+                  <FloatingParticles backdrop={backdrop} ring={palette.ring} />
+
+                  {/* Grid Lines */}
+                  <div className={`camera-grid-overlay ${grid ? "active" : ""}`}>
+                    <div></div><div></div><div></div>
+                    <div></div><div></div><div></div>
+                    <div></div><div></div><div></div>
+                  </div>
+
+                  {/* Synchronized feeds */}
+                  <div style={{ display: "flex", gap: 16, zIndex: 1, position: "relative" }}>
+                    <div
+                      style={{
+                        width: 200,
+                        height: 200,
+                        clipPath: `path("${scalePathD(shape.d, 200)}")`,
+                        background: "#000",
+                        position: "relative",
+                        transition: "box-shadow 0.3s ease",
+                      }}
+                    >
+                      {/* Left Cam Feed Frame border */}
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          pointerEvents: "none",
+                          border: selectedBorder.renderType === "classic-white" ? "4px solid #fff" : selectedBorder.renderType === "black" ? "4px solid #111" : "3px solid var(--primary)",
+                          borderRadius: shape.id === "circle" ? "50%" : shape.id === "polaroid" ? "12px" : "0px",
+                          zIndex: 5,
+                        }}
+                      />
+                      <VisibleVideo videoRef={localVideoRef} mirrored={mirror} filterVal={selectedFilter.cssVal} brightness={brightness} exposure={exposure} />
+                    </div>
+
+                    <div
+                      style={{
+                        width: 200,
+                        height: 200,
+                        clipPath: `path("${scalePathD(shape.d, 200)}")`,
+                        background: "#000",
+                        position: "relative",
+                      }}
+                    >
+                      {/* Right Cam Feed Frame border */}
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          pointerEvents: "none",
+                          border: selectedBorder.renderType === "classic-white" ? "4px solid #fff" : selectedBorder.renderType === "black" ? "4px solid #111" : "3px solid var(--primary)",
+                          borderRadius: shape.id === "circle" ? "50%" : shape.id === "polaroid" ? "12px" : "0px",
+                          zIndex: 5,
+                        }}
+                      />
+                      <VisibleVideo videoRef={remoteVideoRef} mirrored={false} filterVal={selectedFilter.cssVal} brightness={brightness} exposure={exposure} />
+                    </div>
+                  </div>
+
+                  {/* Countdown overlay numbers */}
+                  {countdown !== null && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.4)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 10,
+                      }}
+                    >
+                      <div style={countdownOverlayStyle}>
+                        {countdown > 0 ? countdown : "Flash!"}
+                      </div>
+                      {currentShotNumber > 0 && (
+                        <p style={{ marginTop: 12, color: "var(--secondary)", fontWeight: 700, fontSize: 16 }}>
+                          Taking Capture {currentShotNumber}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sliders adjustments */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
+                  <div>
+                    <label style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 6 }}>Brightness</label>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={1.5}
+                      step={0.05}
+                      value={brightness}
+                      onChange={(e) => setBrightness(parseFloat(e.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, opacity: 0.7, display: "block", marginBottom: 6 }}>Contrast / Exposure</label>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={1.5}
+                      step={0.05}
+                      value={exposure}
+                      onChange={(e) => setExposure(parseFloat(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Customizer sidebar Controls */}
+              <div className="glass-panel" style={{ padding: 24, display: "flex", flexDirection: "column", gap: 22 }}>
+                
+                {/* Theme Selector */}
+                <div>
+                  <h4 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--secondary)", marginBottom: 10 }}>Theme presets</h4>
+                  <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+                    <button
+                      className={`btn-ghost ${selectedTheme === "custom" ? "active" : ""}`}
+                      style={{ padding: "6px 12px", fontSize: 12 }}
+                      onClick={() => applyTheme("custom")}
+                    >
+                      Custom
+                    </button>
+                    {THEMES.map((th) => (
+                      <button
+                        key={th.id}
+                        className={`btn-ghost ${selectedTheme === th.id ? "active" : ""}`}
+                        style={{ padding: "6px 12px", fontSize: 12, whiteSpace: "nowrap" }}
+                        onClick={() => applyTheme(th.id)}
+                      >
+                        {th.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Photo Layout Options */}
+                <div>
+                  <h4 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--secondary)", marginBottom: 10 }}>Photo Layout</h4>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                    <button
+                      className={`btn-ghost ${layout === "single" ? "active" : ""}`}
+                      style={{ padding: "8px", fontSize: 12 }}
+                      onClick={() => {
+                        setLayout("single");
+                        setTimeout(() => sendStyle(), 50);
+                      }}
+                    >
+                      Single Frame
+                    </button>
+                    <button
+                      className={`btn-ghost ${layout === "strip3" ? "active" : ""}`}
+                      style={{ padding: "8px", fontSize: 12 }}
+                      onClick={() => {
+                        setLayout("strip3");
+                        setTimeout(() => sendStyle(), 50);
+                      }}
+                    >
+                      3-Cut Strip
+                    </button>
+                    <button
+                      className={`btn-ghost ${layout === "strip4" ? "active" : ""}`}
+                      style={{ padding: "8px", fontSize: 12 }}
+                      onClick={() => {
+                        setLayout("strip4");
+                        setTimeout(() => sendStyle(), 50);
+                      }}
+                    >
+                      4-Cut Strip
+                    </button>
+                    <button
+                      className={`btn-ghost ${layout === "grid4" ? "active" : ""}`}
+                      style={{ padding: "8px", fontSize: 12 }}
+                      onClick={() => {
+                        setLayout("grid4");
+                        setTimeout(() => sendStyle(), 50);
+                      }}
+                    >
+                      2x2 Grid
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Carousel */}
+                <div>
+                  <h4 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--secondary)", marginBottom: 10 }}>Snapchat Filters</h4>
+                  <div className="carousel-container">
+                    {FILTERS.map((f) => (
+                      <div
+                        key={f.id}
+                        className={`carousel-card ${selectedFilter.id === f.id ? "active" : ""}`}
+                        onClick={() => {
+                          setSelectedFilter(f);
+                          setSelectedTheme("custom");
+                          setTimeout(() => sendStyle(), 50);
+                        }}
+                      >
+                        <div style={{ width: 32, height: 32, borderRadius: "50%", background: f.swatch, border: "2px solid #FFF", marginBottom: 6 }} />
+                        <span style={{ fontSize: 9, textAlign: "center", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", width: "100%" }}>{f.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Border Picker */}
+                <div>
+                  <h4 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--secondary)", marginBottom: 10 }}>Borders Pack</h4>
+                  <div className="carousel-container">
+                    {BORDERS.map((br) => (
+                      <div
+                        key={br.id}
+                        className={`carousel-card ${selectedBorder.id === br.id ? "active" : ""}`}
+                        onClick={() => {
+                          setSelectedBorder(br);
+                          setSelectedTheme("custom");
+                          setTimeout(() => sendStyle(), 50);
+                        }}
+                        style={{ width: 90 }}
+                      >
+                        <div style={{ width: 44, height: 28, border: "2px solid #fff", borderRadius: 4, background: "rgba(255,255,255,0.05)", marginBottom: 6 }} />
+                        <span style={{ fontSize: 9, textAlign: "center", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", width: "100%" }}>{br.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Backdrop / Sparkles Selection */}
+                <div>
+                  <h4 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--secondary)", marginBottom: 10 }}>Overlays</h4>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {BACKDROPS.map((bd) => (
+                      <button
+                        key={bd.id}
+                        className={`btn-ghost ${backdrop.id === bd.id ? "active" : ""}`}
+                        style={{ padding: "6px 12px", fontSize: 11 }}
+                        onClick={() => {
+                          setBackdrop(bd);
+                          setSelectedTheme("custom");
+                          setTimeout(() => sendStyle(), 50);
+                        }}
+                      >
+                        {bd.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {backdrop.id !== "clear" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, opacity: 0.7, display: "flex", justifyContent: "space-between" }}>
+                          <span>Density</span> <span>{decDensity}</span>
+                        </label>
+                        <input
+                          type="range"
+                          min={10}
+                          max={100}
+                          value={decDensity}
+                          onChange={(e) => {
+                            setDecDensity(parseInt(e.target.value));
+                            setTimeout(() => sendStyle(), 50);
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, opacity: 0.7, display: "flex", justifyContent: "space-between" }}>
+                          <span>Opacity</span> <span>{Math.round(decOpacity * 100)}%</span>
+                        </label>
+                        <input
+                          type="range"
+                          min={0.2}
+                          max={1.0}
+                          step={0.1}
+                          value={decOpacity}
+                          onChange={(e) => {
+                            setDecOpacity(parseFloat(e.target.value));
+                            setTimeout(() => sendStyle(), 50);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sparkle Window Shape Selection */}
+                <div>
+                  <h4 style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--secondary)", marginBottom: 10 }}>Window Shapes</h4>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                    {SHAPES.map((sh) => (
+                      <button
+                        key={sh.id}
+                        className={`btn-ghost ${shape.id === sh.id ? "active" : ""}`}
+                        style={{ padding: "8px 4px", fontSize: 11 }}
+                        onClick={() => {
+                          setShape(sh);
+                          setSelectedTheme("custom");
+                          setTimeout(() => sendStyle(), 50);
+                        }}
+                      >
+                        {sh.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Capture Trigger Button */}
+                <button
+                  className="btn-primary"
+                  onClick={triggerCapture}
+                  disabled={!connected || countdown !== null}
+                  style={{ width: "100%", marginTop: 12, padding: "16px 0" }}
+                >
+                  {countdown !== null ? "Get Ready…" : "Capture Photo Strip"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            // Results Display Polaroid Mockup Card
+            <div className="glass-panel" style={{ padding: 40, display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <p className="eyebrow" style={{ marginBottom: 16 }}>Captured Moment</p>
+
+              <div
+                style={{
+                  background: "#FFF",
+                  padding: "24px 24px 48px",
+                  borderRadius: 8,
+                  boxShadow: "0 30px 80px rgba(0,0,0,0.8), inset 0 0 100px rgba(0,0,0,0.05)",
+                  maxWidth: 480,
+                  width: "100%",
+                  marginBottom: 36,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                }}
+              >
+                {photo && (
+                  <img
+                    src={photo}
+                    alt="Captured photo booth strip"
+                    style={{
+                      width: "100%",
+                      borderRadius: 4,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                    }}
+                  />
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: 16 }}>
+                <button className="btn-ghost" style={{ padding: "14px 36px" }} onClick={retake}>
+                  Retake Photo
+                </button>
+                <button className="btn-primary" style={{ padding: "14px 36px" }} onClick={downloadPhoto}>
+                  Download PNG
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
+      {/* Hidden processing pipelines */}
       <video ref={localVideoRef} muted playsInline style={{ display: "none" }} />
       <video ref={remoteVideoRef} muted playsInline style={{ display: "none" }} />
       <canvas ref={canvasRef} style={{ display: "none" }} />
@@ -823,80 +1787,17 @@ export default function Page() {
   );
 }
 
-/* --------------------------------- pieces -------------------------------- */
+/* -------------------------------- pieces -------------------------------- */
 
-function GlobalBits() {
+function PulseDots({ color = "var(--primary)" }: { color?: string }) {
   return (
-    <style>{`
-      @keyframes pulseLine { 0%,100% { opacity:.3; transform: scale(0.85);} 50% { opacity:1; transform: scale(1);} }
-      @keyframes floatUp { 0% { transform: translateY(0) rotate(0deg); opacity:0; } 15% { opacity:.9; } 100% { transform: translateY(-140px) rotate(18deg); opacity:0; } }
-      @keyframes softPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,143,171,0.0); } 50% { box-shadow: 0 0 0 10px rgba(255,143,171,0.0); } }
-      @keyframes gentleBeat { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-    `}</style>
-  );
-}
-
-function SetupScreen({
-  joinInput,
-  setJoinInput,
-  onHost,
-  onJoin,
-  error,
-}: {
-  joinInput: string;
-  setJoinInput: (v: string) => void;
-  onHost: () => void;
-  onJoin: () => void;
-  error: string | null;
-}) {
-  return (
-    <div style={{ maxWidth: 460, width: "100%", textAlign: "center" }}>
-      <p className="eyebrow" style={{ marginBottom: 10 }}>
-        A photo booth for two, anywhere
-      </p>
-      <h1 className="wordmark" style={{ fontSize: 52, margin: "0 0 14px", lineHeight: 1.05 }}>
-        Same Sky
-      </h1>
-      <p style={{ opacity: 0.75, fontSize: 16, lineHeight: 1.6, marginBottom: 40 }}>
-        Two cameras, one countdown. Connect with your person, pick a window shape and a
-        vibe together, and count down to a photo you both keep — no matter the distance.
-      </p>
-
-      <div className="card" style={{ padding: 32, marginBottom: 20 }}>
-        <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 15 }}>Start a session</p>
-        <button className="btn-primary" style={{ width: "100%" }} onClick={onHost}>
-          Get a code
-        </button>
-      </div>
-
-      <div className="card" style={{ padding: 32 }}>
-        <p style={{ fontWeight: 600, marginBottom: 14, fontSize: 15 }}>Have a code already?</p>
-        <input
-          className="code-input"
-          placeholder="ENTER CODE"
-          value={joinInput}
-          onChange={(e) => setJoinInput(e.target.value)}
-          style={{ marginBottom: 14 }}
-        />
-        <button className="btn-ghost" style={{ width: "100%" }} onClick={onJoin}>
-          Connect
-        </button>
-      </div>
-
-      {error && <p style={{ color: "var(--coral)", marginTop: 18, fontSize: 14 }}>{error}</p>}
-    </div>
-  );
-}
-
-function PulseDots({ color = "var(--gold)" }: { color?: string }) {
-  return (
-    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+    <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 24 }}>
       {[0, 1, 2].map((i) => (
         <span
           key={i}
           style={{
-            width: 8,
-            height: 8,
+            width: 10,
+            height: 10,
             borderRadius: "50%",
             background: color,
             animation: `pulseLine 1.2s ${i * 0.2}s infinite ease-in-out`,
@@ -907,269 +1808,22 @@ function PulseDots({ color = "var(--gold)" }: { color?: string }) {
   );
 }
 
-function BoothScreen({
-  stage,
-  palette,
-  palettes,
-  onPickPalette,
-  shape,
-  shapes,
-  onPickShape,
-  backdrop,
-  backdrops,
-  onPickBackdrop,
-  onCapture,
-  countdown,
-  localVideoRef,
-  remoteVideoRef,
-  connected,
-  photo,
-  onRetake,
-  onDownload,
-}: {
-  stage: Stage;
-  palette: PaletteStyle;
-  palettes: PaletteStyle[];
-  onPickPalette: (p: PaletteStyle) => void;
-  shape: ShapeStyle;
-  shapes: ShapeStyle[];
-  onPickShape: (s: ShapeStyle) => void;
-  backdrop: BackdropStyle;
-  backdrops: BackdropStyle[];
-  onPickBackdrop: (b: BackdropStyle) => void;
-  onCapture: () => void;
-  countdown: number | null;
-  localVideoRef: React.RefObject<HTMLVideoElement>;
-  remoteVideoRef: React.RefObject<HTMLVideoElement>;
-  connected: boolean;
-  photo: string | null;
-  onRetake: () => void;
-  onDownload: () => void;
-}) {
-  const showBooth = stage === "live";
-  return (
-    <div style={{ width: "100%", maxWidth: 720, textAlign: "center" }}>
-      {showBooth && (
-        <>
-          <p className="eyebrow" style={{ marginBottom: 20 }}>
-            {connected ? "Connected" : "Linking up…"}
-          </p>
-
-          <div
-            style={{
-              position: "relative",
-              display: "flex",
-              justifyContent: "center",
-              marginBottom: 28,
-              height: 300,
-            }}
-          >
-            <FloatingSprinkle backdrop={backdrop} ring={palette.ring} />
-            <ShapeWindow videoRef={localVideoRef} offset={-90} size={230} d={shape.d} ring={palette.ring} mirrored />
-            <ShapeWindow videoRef={remoteVideoRef} offset={90} size={230} d={shape.d} ring={palette.ring} />
-            {countdown !== null && countdown > 0 && (
-              <div style={{ ...countdownOverlayStyle, animation: "gentleBeat 1s ease-in-out infinite" }}>
-                {countdown}
-              </div>
-            )}
-          </div>
-
-          <PickerRow
-            label="Vibe"
-            selectedId={palette.id}
-            items={palettes.map((p) => ({ id: p.id, title: p.label, swatch: p.swatch }))}
-            onPick={(id) => onPickPalette(palettes.find((p) => p.id === id)!)}
-          />
-
-          <PickerRow
-            label="Window"
-            selectedId={shape.id}
-            items={shapes.map((s) => ({ id: s.id, title: s.label, sub: s.hint, d: s.d }))}
-            ring={palette.ring}
-            onPick={(id) => onPickShape(shapes.find((s) => s.id === id)!)}
-          />
-
-          <PickerRow
-            label="Sparkle"
-            selectedId={backdrop.id}
-            items={backdrops.map((b) => ({ id: b.id, title: b.label }))}
-            onPick={(id) => onPickBackdrop(backdrops.find((b) => b.id === id)!)}
-          />
-
-          <button
-            className="btn-primary"
-            onClick={onCapture}
-            disabled={!connected || countdown !== null}
-            style={{ marginTop: 8 }}
-          >
-            {countdown !== null ? "Get ready…" : "Capture together"}
-          </button>
-        </>
-      )}
-
-      {stage === "result" && photo && (
-        <>
-          <p className="eyebrow" style={{ marginBottom: 20 }}>
-            Your photo
-          </p>
-          <img
-            src={photo}
-            alt="Captured moment"
-            style={{
-              width: "100%",
-              maxWidth: 480,
-              borderRadius: 16,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-              marginBottom: 28,
-            }}
-          />
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <button className="btn-ghost" onClick={onRetake}>
-              Take another
-            </button>
-            <button className="btn-primary" onClick={onDownload}>
-              Save photo
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------ picker rows ------------------------------ */
-
-function PickerRow({
-  label,
-  items,
-  selectedId,
-  onPick,
-  ring,
-}: {
-  label: string;
-  items: { id: string; title: string; sub?: string; swatch?: string; d?: string }[];
-  selectedId: string;
-  onPick: (id: string) => void;
-  ring?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 22 }}>
-      <p
-        style={{
-          fontSize: 11,
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          opacity: 0.55,
-          marginBottom: 10,
-        }}
-      >
-        {label}
-      </p>
-      <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-        {items.map((item) => {
-          const active = item.id === selectedId;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onPick(item.id)}
-              title={item.title}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 5,
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                opacity: active ? 1 : 0.6,
-                transition: "opacity 0.15s ease, transform 0.15s ease",
-                transform: active ? "translateY(-2px)" : "none",
-              }}
-            >
-              <span
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: item.swatch ? "50%" : 8,
-                  border: active ? `2px solid var(--cream)` : "2px solid transparent",
-                  boxShadow: active ? `0 0 0 2px ${ring || "rgba(0,0,0,0.15)"}` : "none",
-                  background: item.swatch || "rgba(245,239,230,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  overflow: "hidden",
-                }}
-              >
-                {item.d && (
-                  <svg viewBox="0 0 1 1" width={22} height={22}>
-                    <path d={item.d} fill={active ? ring || "var(--cream)" : "rgba(245,239,230,0.7)"} />
-                  </svg>
-                )}
-                {!item.d && !item.swatch && (
-                  <BackdropGlyph id={item.id} color={active ? ring || "var(--cream)" : "rgba(245,239,230,0.7)"} />
-                )}
-              </span>
-              <span style={{ fontSize: 10, opacity: 0.75 }}>{item.title}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function BackdropGlyph({ id, color }: { id: string; color: string }) {
-  if (id === "stardust") {
-    return (
-      <svg viewBox="0 0 24 24" width={16} height={16}>
-        <circle cx="6" cy="8" r="1.4" fill={color} />
-        <circle cx="14" cy="5" r="1" fill={color} />
-        <circle cx="17" cy="14" r="1.6" fill={color} />
-        <circle cx="9" cy="17" r="1" fill={color} />
-      </svg>
-    );
-  }
-  if (id === "petals") {
-    return (
-      <svg viewBox="0 0 1 1" width={16} height={16}>
-        <path d={SHAPE_PATHS.heart} fill={color} />
-      </svg>
-    );
-  }
-  if (id === "confetti") {
-    return (
-      <svg viewBox="0 0 24 24" width={16} height={16}>
-        <rect x="4" y="4" width="5" height="2.5" fill={color} transform="rotate(20 6 5)" />
-        <rect x="14" y="8" width="5" height="2.5" fill={color} transform="rotate(-15 16 9)" />
-        <rect x="8" y="15" width="5" height="2.5" fill={color} transform="rotate(40 10 16)" />
-      </svg>
-    );
-  }
-  // clear
-  return (
-    <svg viewBox="0 0 24 24" width={16} height={16}>
-      <circle cx="12" cy="12" r="7" fill="none" stroke={color} strokeWidth="1.4" strokeDasharray="3 3" />
-    </svg>
-  );
-}
-
-function FloatingSprinkle({ backdrop, ring }: { backdrop: BackdropStyle; ring: string }) {
+function FloatingParticles({ backdrop, ring }: { backdrop: BackdropStyle; ring: string }) {
   const bits = useMemo(() => {
     if (backdrop.id === "clear") return [];
-    const count = 7;
+    const count = 8;
     return Array.from({ length: count }).map((_, i) => ({
-      left: 8 + ((i * 37) % 90),
-      delay: (i % 5) * 0.9,
-      duration: 5 + (i % 4),
-      size: 8 + (i % 3) * 4,
+      left: 10 + ((i * 31) % 80),
+      delay: (i % 4) * 0.8,
+      duration: 6 + (i % 3) * 2,
+      size: 10 + (i % 3) * 4,
     }));
   }, [backdrop.id]);
 
   if (backdrop.id === "clear") return null;
 
   return (
-    <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+    <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 0 }}>
       {bits.map((b, i) => (
         <span
           key={i}
@@ -1184,17 +1838,18 @@ function FloatingSprinkle({ backdrop, ring }: { backdrop: BackdropStyle; ring: s
         >
           {backdrop.id === "petals" && (
             <svg viewBox="0 0 1 1" width={b.size} height={b.size}>
-              <path d={SHAPE_PATHS.heart} fill={ring} opacity={0.55} />
+              <path d={SHAPE_PATHS.heart} fill="#ff8fab" opacity={0.5} />
             </svg>
           )}
           {backdrop.id === "stardust" && (
             <span
               style={{
                 display: "block",
-                width: b.size * 0.35,
-                height: b.size * 0.35,
+                width: b.size * 0.4,
+                height: b.size * 0.4,
                 borderRadius: "50%",
-                background: "rgba(245,239,230,0.8)",
+                background: "rgba(255,255,255,0.7)",
+                boxShadow: "0 0 10px #FFF",
               }}
             />
           )}
@@ -1202,12 +1857,31 @@ function FloatingSprinkle({ backdrop, ring }: { backdrop: BackdropStyle; ring: s
             <span
               style={{
                 display: "block",
-                width: b.size * 0.9,
+                width: b.size * 0.8,
                 height: b.size * 0.35,
                 background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-                opacity: 0.75,
+                opacity: 0.7,
               }}
             />
+          )}
+          {backdrop.id === "stars" && (
+            <svg viewBox="0 0 24 24" width={b.size} height={b.size} fill={ring} opacity={0.5}>
+              <path d="M12,2L14.8,8.2L21.6,9L16.5,13.6L18,20.3L12,16.8L6,20.3L7.5,13.6L2.4,9L9.2,8.2L12,2Z" />
+            </svg>
+          )}
+          {backdrop.id === "flowers" && (
+            <svg viewBox="0 0 24 24" width={b.size} height={b.size} fill="#FFB7C5" opacity={0.6}>
+              <path d="M12,2A3,3 0 0,0 9,5A3,3 0 0,0 9.15,6.04C8,6.58 7.25,7.74 7.25,9.08C7.25,10.42 8,11.58 9.15,12.12C8,12.66 7.25,13.82 7.25,15.16C7.25,16.5 8,17.66 9.15,18.2C9.05,18.5 9,18.82 9,19.16A3,3 0 0,0 12,22.16A3,3 0 0,0 15,19.16C15,18.82 14.95,18.5 14.85,18.2C16,17.66 16.75,16.5 16.75,15.16C16.75,13.82 16,12.66 14.85,12.12C16,11.58 16.75,10.42 16.75,9.08C16.75,7.74 16,6.58 14.85,6.04A3,3 0 0,0 15,5A3,3 0 0,0 12,2Z" />
+            </svg>
+          )}
+          {backdrop.id === "butterflies" && (
+            <span style={{ fontSize: b.size * 0.8, opacity: 0.65 }}>🦋</span>
+          )}
+          {backdrop.id === "snow" && (
+            <span style={{ fontSize: b.size * 0.8, opacity: 0.8 }}>❄️</span>
+          )}
+          {backdrop.id === "balloons" && (
+            <span style={{ fontSize: b.size * 0.9, opacity: 0.7 }}>🎈</span>
           )}
         </span>
       ))}
@@ -1217,47 +1891,18 @@ function FloatingSprinkle({ backdrop, ring }: { backdrop: BackdropStyle; ring: s
 
 /* -------------------------------- windows -------------------------------- */
 
-function ShapeWindow({
-  videoRef,
-  offset,
-  size,
-  d,
-  ring,
-  mirrored,
-}: {
-  videoRef: React.RefObject<HTMLVideoElement>;
-  offset: number;
-  size: number;
-  d: string;
-  ring: string;
-  mirrored?: boolean;
-}) {
-  const clip = useMemo(() => `path("${scalePathD(d, size)}")`, [d, size]);
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: `calc(50% + ${offset}px)`,
-        transform: "translateX(-50%)",
-        width: size,
-        height: size,
-        clipPath: clip,
-        WebkitClipPath: clip,
-        background: "#000",
-        boxShadow: `0 0 0 3px ${ring}, 0 12px 30px rgba(0,0,0,0.35)`,
-      }}
-    >
-      <VisibleVideo videoRef={videoRef} mirrored={mirrored} />
-    </div>
-  );
-}
-
 function VisibleVideo({
   videoRef,
   mirrored,
+  filterVal,
+  brightness,
+  exposure,
 }: {
   videoRef: React.RefObject<HTMLVideoElement>;
   mirrored?: boolean;
+  filterVal: string;
+  brightness: number;
+  exposure: number;
 }) {
   const visibleRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -1274,6 +1919,10 @@ function VisibleVideo({
     const id = setInterval(sync, 400);
     return () => clearInterval(id);
   }, [videoRef]);
+
+  // Combine snapchat filter with manual sliders
+  const filterString = `${filterVal} brightness(${brightness}) contrast(${exposure})`;
+
   return (
     <video
       ref={visibleRef}
@@ -1285,6 +1934,8 @@ function VisibleVideo({
         height: "100%",
         objectFit: "cover",
         transform: mirrored ? "scaleX(-1)" : "none",
+        filter: filterString,
+        transition: "filter 0.3s ease",
       }}
     />
   );
@@ -1300,9 +1951,9 @@ function DebugPanel({
   setOpen: (v: boolean) => void;
 }) {
   const levelColor: Record<LogLevel, string> = {
-    info: "rgba(245,239,230,0.75)",
-    success: "#7ed9a3",
-    error: "#ff7a59",
+    info: "rgba(255,255,255,0.75)",
+    success: "#22C55E",
+    error: "#EC4899",
   };
   return (
     <div
@@ -1311,66 +1962,60 @@ function DebugPanel({
         bottom: 0,
         left: 0,
         right: 0,
-        maxHeight: open ? "40vh" : 40,
-        background: "rgba(10,10,16,0.92)",
-        borderTop: "1px solid var(--line)",
-        transition: "max-height 0.2s ease",
+        maxHeight: open ? "40vh" : 0,
+        background: "rgba(9,9,11,0.95)",
+        borderTop: "1px solid var(--glass-border)",
+        transition: "max-height 0.3s ease",
         overflow: "hidden",
-        zIndex: 50,
+        zIndex: 100,
       }}
     >
-      <button
-        onClick={() => setOpen(!open)}
+      <div
         style={{
-          width: "100%",
-          height: 40,
-          background: "transparent",
-          border: "none",
-          color: "var(--cream)",
-          fontFamily: "monospace",
-          fontSize: 12,
+          padding: 16,
           display: "flex",
+          justifyContent: "between",
           alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
+          borderBottom: "1px solid var(--glass-border)",
         }}
       >
-        {open ? "▾" : "▸"} debug log ({logs.length})
-      </button>
-      {open && (
-        <div
-          style={{
-            padding: "0 16px 16px",
-            overflowY: "auto",
-            maxHeight: "calc(40vh - 40px)",
-            fontFamily: "monospace",
-            fontSize: 12,
-            lineHeight: 1.6,
-          }}
+        <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Connection Debug Logs</span>
+        <button
+          onClick={() => setOpen(false)}
+          className="btn-ghost"
+          style={{ padding: "4px 10px", fontSize: 11 }}
         >
-          {logs.length === 0 && (
-            <p style={{ opacity: 0.5 }}>Nothing logged yet — start a session or join one.</p>
-          )}
-          {logs.map((l, i) => (
-            <div key={i} style={{ color: levelColor[l.level] }}>
-              <span style={{ opacity: 0.5 }}>{l.time}</span> {l.msg}
-            </div>
-          ))}
-        </div>
-      )}
+          Close
+        </button>
+      </div>
+      <div
+        style={{
+          padding: "16px",
+          overflowY: "auto",
+          maxHeight: "calc(40vh - 50px)",
+          fontFamily: "var(--font-mono), monospace",
+          fontSize: 12,
+          lineHeight: 1.6,
+        }}
+      >
+        {logs.length === 0 && (
+          <p style={{ opacity: 0.5 }}>No operations logged yet.</p>
+        )}
+        {logs.map((l, i) => (
+          <div key={i} style={{ color: levelColor[l.level] }}>
+            <span style={{ opacity: 0.5 }}>{l.time}</span> {l.msg}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 const countdownOverlayStyle: React.CSSProperties = {
-  position: "absolute",
-  top: "50%",
-  left: "50%",
-  transform: "translate(-50%, -50%)",
-  fontFamily: "var(--font-display)",
-  fontSize: 72,
-  fontWeight: 700,
-  color: "var(--cream)",
-  textShadow: "0 0 30px rgba(0,0,0,0.8)",
-  zIndex: 5,
+  fontFamily: "var(--font-display), sans-serif",
+  fontSize: 96,
+  fontWeight: 800,
+  color: "#FFF",
+  textShadow: "0 0 40px rgba(124,58,237,0.8), 0 0 10px rgba(0,0,0,0.5)",
+  animation: "gentleBeat 1s ease-in-out infinite",
 };
